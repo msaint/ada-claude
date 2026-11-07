@@ -454,8 +454,8 @@ export async function submitAttempt(ownerId: string, activityId: string, key: st
         feedbackMarkdown:
           result === "correct"
             ? independence === "assisted"
-              ? "Correct — with a hint, so this counts as assisted practice."
-              : "Correct."
+              ? "Right — with help, so this counts as assisted practice."
+              : "That's right."
             : a.purpose === "prediction"
               ? "Not quite — that's fine for a prediction. Here's why:"
               : "Not quite. Here's why:",

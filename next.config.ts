@@ -8,6 +8,8 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Separate build output lets E2E builds run without clobbering a dev build.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   serverExternalPackages: ["postgres"],
   poweredByHeader: false,
   async headers() {

@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #1d1e22;
+  --color-ink-soft: #3d3f45;
+  --color-muted: #646870;
+  --color-line: #e6e6ea;
+  --color-line-strong: #d4d4da;
+  --color-surface: #f8f8f9;
+  --color-paper: #ffffff;
+  --color-accent: #6347d1;
+  --color-accent-strong: #5236bd;
+  --color-accent-soft: #f1eefc;
+  --color-good: #1f7a4d;
+  --color-good-soft: #eaf6ef;
+  --color-warn: #8a5a00;
+  --color-warn-soft: #fdf4e3;
+  --color-bad: #a8332b;
+  --color-bad-soft: #fcecea;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Learner-facing generated markdown */
+.ada-prose {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.ada-prose > * + * {
+  margin-top: 0.85em;
+}
+.ada-prose h1,
+.ada-prose h2,
+.ada-prose h3 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.4em;
+}
+.ada-prose h1 {
+  font-size: 1.35rem;
+}
+.ada-prose h2 {
+  font-size: 1.2rem;
+}
+.ada-prose h3 {
+  font-size: 1.05rem;
+}
+.ada-prose ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.ada-prose ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.ada-prose li + li {
+  margin-top: 0.3em;
+}
+.ada-prose strong {
+  font-weight: 600;
+}
+.ada-prose em {
+  color: var(--color-ink-soft);
+}
+.ada-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+.ada-prose pre {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 0.9em 1em;
+  overflow-x: auto;
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.ada-prose pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.ada-prose blockquote {
+  border-left: 3px solid var(--color-line-strong);
+  padding-left: 1em;
+  color: var(--color-ink-soft);
+}
+.ada-prose table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.ada-prose th,
+.ada-prose td {
+  border: 1px solid var(--color-line);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.ada-prose a {
+  color: var(--color-accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ada-prose.compact {
+  font-size: 1rem;
+  line-height: 1.65;
+}
