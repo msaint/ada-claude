@@ -99,7 +99,7 @@ How answers are graded:
 
 ## Deployment
 
-Step-by-step for Vercel + Supabase + OpenAI/Anthropic: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+Step-by-step for Vercel + Supabase + OpenAI/Anthropic: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Cloud-only development (where every secret lives, CI, migrations via GitHub Actions): [`docs/CLOUD_DEVELOPMENT.md`](docs/CLOUD_DEVELOPMENT.md).
 
 ## Privacy
 

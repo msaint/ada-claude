@@ -1,0 +1,39 @@
+name: Migrate database
+
+# Production migrates automatically when migrations land on main.
+# Staging (and production, if needed) can be migrated by hand from the Actions tab.
+on:
+  push:
+    branches: [main]
+    paths: ["db/migrations/**"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which database to migrate
+        type: choice
+        options: [staging, production]
+        default: staging
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    # The secret MIGRATION_DATABASE_URL is defined separately in each GitHub Environment
+    # (Settings → Environments → staging / production). Add required reviewers to
+    # "production" if you want a manual approval gate.
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+    concurrency: migrate-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply migrations
+        env:
+          MIGRATION_DATABASE_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+        run: |
+          if [ -z "$MIGRATION_DATABASE_URL" ]; then
+            echo "::error::MIGRATION_DATABASE_URL is not set for this GitHub Environment"; exit 1
+          fi
+          npm run db:migrate

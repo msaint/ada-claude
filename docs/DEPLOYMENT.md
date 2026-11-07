@@ -12,31 +12,23 @@ The app runs on Vercel. Supabase provides only the Postgres database: Ada has it
 
    Both have the form `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:<port>/postgres`. URL-encode special characters in the password. The app adds TLS automatically and turns off prepared statements on port 6543.
 
-## 2. Run the migrations against Supabase (from your machine)
+## 2. Run the migrations (from GitHub Actions)
 
-```bash
-git clone https://github.com/msaint/ada-claude && cd ada-claude && npm install
-```
-
-```bash
-MIGRATION_DATABASE_URL='postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres' npm run db:migrate
-```
-
-You should see `applied 0001_init.sql`, `applied 0002_enable_rls.sql`, `up to date`. Supabase's **Table Editor** should now list the tables, each marked RLS-enabled. Re-run this command whenever a new migration is added. It is idempotent, and `--reset` refuses to touch non-local databases.
+No local machine is involved. In GitHub, go to **Settings → Environments → New environment `production`** and add the secret `MIGRATION_DATABASE_URL` = the **session pooler** URL. Then go to **Actions → Migrate database → Run workflow → production**. The log should show `applied 0001_init.sql`, `applied 0002_enable_rls.sql`, `up to date`. From then on, merges to `main` that add migrations apply them automatically. For a staging database, see [`CLOUD_DEVELOPMENT.md`](CLOUD_DEVELOPMENT.md).
 
 ## 3. Get the model API keys
 
 - **OpenAI:** platform.openai.com → API keys → create a project key. Add billing.
 - **Anthropic:** platform.claude.com → API Keys → create a key. Add billing.
 
-Optional: check each key outside the app before deploying:
+Optional: check each key from a Claude Code cloud session before deploying (the keys are stored as the environment's network secrets; see `CLOUD_DEVELOPMENT.md`):
 
 ```bash
-OPENAI_API_KEY=sk-... npm run smoke:model -- --provider openai "Black holes"
+OPENAI_API_KEY=placeholder npm run smoke:model -- --provider openai "Black holes"
 ```
 
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... npm run smoke:model -- --provider anthropic "Black holes"
+ANTHROPIC_API_KEY=placeholder npm run smoke:model -- --provider anthropic "Black holes"
 ```
 
 ## 4. Create the Vercel project
