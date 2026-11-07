@@ -41,5 +41,11 @@ If reviews are due, starting a session defaults to a **review** session: up to 3
 ### D12. Curiosity progress shows counts, never a denominator
 "You've explored N ideas and opened M branches." There is no "N of M", so nothing reads as percent-complete for open-ended subjects (invariant 9).
 
+### D13. Two providers behind one adapter, with cross-provider fallback
+`LLMLearningModel` is transport-agnostic: `OpenAITransport` and `AnthropicTransport` each send one request, and the shared adapter does schema embedding, Zod and semantic validation, one repair call, and jittered retries, so both providers are held to identical output contracts. `FallbackLearningModel` retries an operation on the second provider when the first raises a `ModelError` (timeout, outage, invalid output after repair). Rate-limit/budget errors are not masked. The Anthropic transport defaults to `claude-opus-5-5`, enables server-side refusal fallback (`fallbacks: "default"`), and sizes `max_tokens` for adaptive thinking.
+
+### D14. Hosted-Postgres hardening
+Migration `0002` enables RLS (no policies) on every table so a hosted Data API (e.g. Supabase PostgREST with the anon key) can read nothing; the app connects as the table owner and is unaffected. The DB client disables prepared statements on Supabase's transaction pooler (port 6543), requires TLS for non-local hosts, and uses small per-instance pools on Vercel. `db:reset` refuses non-local databases.
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.

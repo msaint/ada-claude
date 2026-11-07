@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { env } from "@/lib/env";
+import { connectionOptions } from "./options";
 
 type Sql = postgres.Sql<Record<string, never>>;
 export type Tx = postgres.TransactionSql<Record<string, never>>;
@@ -10,10 +11,10 @@ const globalForDb = globalThis as unknown as { __adaSql?: Sql };
 /** Shared connection pool (survives Next.js dev hot reloads). */
 export function db(): Sql {
   if (!globalForDb.__adaSql) {
-    globalForDb.__adaSql = postgres(env().DATABASE_URL, {
-      max: 10,
-      idle_timeout: 30,
-      onnotice: () => {},
+    const url = env().DATABASE_URL;
+    globalForDb.__adaSql = postgres(url, {
+      ...connectionOptions(url),
+      idle_timeout: 20,
       transform: { undefined: null },
     }) as Sql;
   }

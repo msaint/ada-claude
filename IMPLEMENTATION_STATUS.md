@@ -8,12 +8,16 @@ Last updated: 2026-11-07. Legend: ✅ done and tested · 🟡 partial · ⛔ blo
 |---|---|
 | `npm run typecheck` | ✅ pass |
 | `npm run lint` | ✅ pass (0 errors, 0 warnings) |
-| `npm test` | ✅ 75/75: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
+| `npm test` | ✅ 82/82: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
 | `npm run build` | ✅ pass |
 | `npm run test:e2e` | ✅ 7/7 Playwright: curiosity journey, goal journey, sidebar and deletion, failure/retry, keyboard-only, mobile drawer, cross-user URL |
-| `npm run smoke:model` (real model) | ⛔ **not run.** No `OPENAI_API_KEY` is available here, and this sandbox's network policy blocks `api.openai.com`. The adapter is covered by transport-level tests (valid output, malformed JSON → repair, cyclic graph → repair → clean failure, 429/5xx retry, timeout, non-transient error, kind enforcement). **Run it before relying on real-model quality.** |
+| `npm run smoke:model` (real model) | ⛔ **not run** for either provider. No OpenAI or Anthropic key is available here, and this sandbox's network policy blocks `api.openai.com`. The adapter is covered by transport-level tests (valid output, malformed JSON → repair, cyclic graph → repair → clean failure, 429/5xx retry, timeout, non-transient error, kind enforcement). **Run it before relying on real-model quality.** |
 
 All E2E and integration runs use the **deterministic development model**. They prove the system end to end, not the quality of real AI teaching.
+
+## Deployment support
+- ✅ Anthropic transport + OpenAI transport with automatic cross-provider fallback (provider selection and fallback unit-tested; Anthropic transport not exercised against the live API here).
+- ✅ Supabase/Vercel-ready DB connections (transaction pooler, TLS, small pools), RLS backstop migration, guided steps in `docs/DEPLOYMENT.md`.
 
 ## Slices
 

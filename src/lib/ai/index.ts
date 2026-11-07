@@ -4,22 +4,39 @@ import { AppError, ModelError } from "@/lib/errors";
 import type { LearningModel, WithInfo } from "./model-adapter";
 import { MockLearningModel } from "./mock-model";
 import { LLMLearningModel, OpenAITransport } from "./openai-model";
+import { AnthropicTransport } from "./anthropic-model";
+import { FallbackLearningModel } from "./fallback-model";
 
 const g = globalThis as unknown as { __adaModel?: LearningModel; __adaModelOverride?: LearningModel };
 
 export function getModel(): LearningModel {
   if (g.__adaModelOverride) return g.__adaModelOverride;
-  if (!g.__adaModel) {
-    const e = env();
-    g.__adaModel = usingMockModel()
-      ? new MockLearningModel()
-      : new LLMLearningModel(
-          new OpenAITransport(e.OPENAI_API_KEY!, e.OPENAI_BASE_URL),
-          { clarify: e.ADA_MODEL_CLARIFY, compile: e.ADA_MODEL_COMPILE, tutor: e.ADA_MODEL_TUTOR, evaluate: e.ADA_MODEL_EVALUATE },
-          { timeoutMs: e.ADA_MODEL_TIMEOUT_MS },
-        );
-  }
+  if (!g.__adaModel) g.__adaModel = buildModel();
   return g.__adaModel;
+}
+
+/** Builds the configured provider chain: primary (+ the other provider as fallback when both keys exist). */
+export function buildModel(): LearningModel {
+  const e = env();
+  if (usingMockModel()) return new MockLearningModel();
+  const openai = e.OPENAI_API_KEY
+    ? new LLMLearningModel(
+        new OpenAITransport(e.OPENAI_API_KEY, e.OPENAI_BASE_URL),
+        { clarify: e.ADA_MODEL_CLARIFY, compile: e.ADA_MODEL_COMPILE, tutor: e.ADA_MODEL_TUTOR, evaluate: e.ADA_MODEL_EVALUATE },
+        { timeoutMs: e.ADA_MODEL_TIMEOUT_MS, provider: "openai" },
+      )
+    : null;
+  const anthropic = e.ANTHROPIC_API_KEY
+    ? new LLMLearningModel(
+        new AnthropicTransport(e.ANTHROPIC_API_KEY, { effort: e.ADA_ANTHROPIC_EFFORT }),
+        { clarify: e.ADA_ANTHROPIC_MODEL_CLARIFY, compile: e.ADA_ANTHROPIC_MODEL_COMPILE, tutor: e.ADA_ANTHROPIC_MODEL_TUTOR, evaluate: e.ADA_ANTHROPIC_MODEL_EVALUATE },
+        { timeoutMs: e.ADA_MODEL_TIMEOUT_MS, provider: "anthropic" },
+      )
+    : null;
+  const preferAnthropic = e.ADA_MODEL_PROVIDER === "anthropic" || (!e.ADA_MODEL_PROVIDER && !openai);
+  const primary = (preferAnthropic ? anthropic : openai)!;
+  const secondary = preferAnthropic ? openai : anthropic;
+  return secondary && e.ADA_MODEL_FALLBACK ? new FallbackLearningModel(primary, secondary) : primary;
 }
 
 /** Test hook: substitute a model implementation (never used by app code). */

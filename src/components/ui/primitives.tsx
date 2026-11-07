@@ -86,7 +86,7 @@ export function Dialog({ open, onClose, title, children }: { open: boolean; onCl
 export function DevModelBanner() {
   return (
     <div role="note" className="border-b border-warn/20 bg-warn-soft px-4 py-1.5 text-center text-xs text-warn">
-      Development model active — lessons are deterministic placeholders, <strong>not real AI</strong>. Set OPENAI_API_KEY to use a real model.
+      Development model active — lessons are deterministic placeholders, <strong>not real AI</strong>. Set OPENAI_API_KEY or ANTHROPIC_API_KEY to use a real model.
     </div>
   );
 }

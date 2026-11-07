@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { ModelError } from "@/lib/errors";
 import { log } from "@/lib/log";
@@ -58,6 +59,7 @@ const BUDGET: Record<Op, number> = { clarify: 600, compile: 3000, expand: 2000, 
 
 export function isTransient(err: unknown): boolean {
   if (err instanceof OpenAI.APIConnectionTimeoutError || err instanceof OpenAI.APIConnectionError) return true;
+  if (err instanceof Anthropic.APIConnectionTimeoutError || err instanceof Anthropic.APIConnectionError) return true;
   const status = (err as { status?: number })?.status;
   if (status === 429 || (typeof status === "number" && status >= 500)) return true;
   const name = (err as { name?: string })?.name ?? "";

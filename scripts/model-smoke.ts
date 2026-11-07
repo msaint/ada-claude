@@ -1,32 +1,33 @@
 /**
- * Manual real-model smoke test (spec §16). Requires OPENAI_API_KEY.
- *   npm run smoke:model            # four topics incl. an unseen niche one
- *   npm run smoke:model -- "Topic" # your own topic
+ * Manual real-model smoke test (spec §16). Needs OPENAI_API_KEY and/or ANTHROPIC_API_KEY.
+ *   npm run smoke:model                          # configured primary provider, four topics
+ *   npm run smoke:model -- --provider anthropic  # test one provider in isolation (no fallback)
+ *   npm run smoke:model -- --provider openai "My own topic"
  * Prints the clarification, curriculum, one activity per kind and a grading
  * result for each topic so a human can judge quality. Nothing is persisted.
  */
 import { loadEnvFiles } from "./load-env";
-import { LLMLearningModel, OpenAITransport } from "../src/lib/ai/openai-model";
 
 loadEnvFiles();
-const key = process.env.OPENAI_API_KEY;
-if (!key) {
-  console.error("OPENAI_API_KEY is not set — this smoke test needs a real provider.");
+const args = process.argv.slice(2);
+const pIdx = args.indexOf("--provider");
+if (pIdx >= 0) {
+  process.env.ADA_MODEL_PROVIDER = args[pIdx + 1];
+  process.env.ADA_MODEL_FALLBACK = "false";
+  args.splice(pIdx, 2);
+}
+process.env.DATABASE_URL ??= "postgres://unused@localhost:5432/unused"; // env validation only; no DB access here
+process.env.MOCK_MODEL = "false";
+if (!process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+  console.error("Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY — this smoke test needs a real provider.");
   process.exit(1);
 }
-const model = new LLMLearningModel(
-  new OpenAITransport(key, process.env.OPENAI_BASE_URL || undefined),
-  {
-    clarify: process.env.ADA_MODEL_CLARIFY || "gpt-4.1-mini",
-    compile: process.env.ADA_MODEL_COMPILE || "gpt-4.1",
-    tutor: process.env.ADA_MODEL_TUTOR || "gpt-4.1-mini",
-    evaluate: process.env.ADA_MODEL_EVALUATE || "gpt-4.1-mini",
-  },
-  { timeoutMs: Number(process.env.ADA_MODEL_TIMEOUT_MS || 60000) },
-);
+const { buildModel } = await import("../src/lib/ai/index");
+const model = buildModel();
+console.log(`provider chain: ${model.provider}`);
 
-const topics = process.argv.slice(2).length
-  ? process.argv.slice(2)
+const topics = args.length
+  ? args
   : ["How train wheels work", "Black holes", "I want to learn Python to automate spreadsheets", "history of ball bearings in bicycles"];
 
 async function run(topic: string) {
@@ -37,7 +38,7 @@ async function run(topic: string) {
   if (ready.value.status !== "ready") throw new Error("start-now did not return ready");
   const i = ready.value.interpretation;
   const c = await model.compileCurriculum({ topic, intent: i.intent, goalText: i.goal_text, depth: i.depth, baseline: i.baseline, timeBudgetMinutesWeekly: i.time_budget_minutes_weekly, successCriteria: i.success_criteria, assumptions: i.assumptions });
-  console.log(`curriculum: "${c.value.title}" — ${c.value.direction} (${c.info.latencyMs}ms, repaired=${c.info.repaired})`);
+  console.log(`curriculum: "${c.value.title}" — ${c.value.direction} (${c.info.provider}/${c.info.model}, ${c.info.latencyMs}ms, repaired=${c.info.repaired})`);
   for (const k of c.value.concepts) console.log(`  - ${k.slug}: ${k.title} [prereq: ${k.prerequisites.join(", ") || "none"}]`);
   const first = c.value.concepts.find((k) => k.slug === c.value.first_concept_slug)!;
   const concept = { slug: first.slug, title: first.title, description: first.description, assessmentCriteria: first.assessment_criteria, prerequisites: [] };

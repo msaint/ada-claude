@@ -4,6 +4,19 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_BASE_URL: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  /** Which provider serves requests first. Defaults to whichever key is set (OpenAI if both). */
+  ADA_MODEL_PROVIDER: z.enum(["openai", "anthropic"]).optional(),
+  /** When both keys are set, fall back to the other provider on outages/timeouts. */
+  ADA_MODEL_FALLBACK: z
+    .string()
+    .optional()
+    .transform((v) => v !== "false" && v !== "0"),
+  ADA_ANTHROPIC_MODEL_CLARIFY: z.string().default("claude-opus-5-5"),
+  ADA_ANTHROPIC_MODEL_COMPILE: z.string().default("claude-opus-5-5"),
+  ADA_ANTHROPIC_MODEL_TUTOR: z.string().default("claude-opus-5-5"),
+  ADA_ANTHROPIC_MODEL_EVALUATE: z.string().default("claude-opus-5-5"),
+  ADA_ANTHROPIC_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
   ADA_MODEL_CLARIFY: z.string().default("gpt-4.1-mini"),
   ADA_MODEL_COMPILE: z.string().default("gpt-4.1"),
   ADA_MODEL_TUTOR: z.string().default("gpt-4.1-mini"),
@@ -29,14 +42,20 @@ export function env(): Env {
     ...process.env,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || undefined,
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || undefined,
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
+    ADA_MODEL_PROVIDER: process.env.ADA_MODEL_PROVIDER || undefined,
+    ADA_ANTHROPIC_EFFORT: process.env.ADA_ANTHROPIC_EFFORT || undefined,
   });
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
     throw new Error(`Invalid environment configuration: ${issues}`);
   }
-  if (!parsed.data.MOCK_MODEL && !parsed.data.OPENAI_API_KEY && parsed.data.NODE_ENV === "production") {
-    throw new Error("OPENAI_API_KEY is required in production (MOCK_MODEL is for development/tests only).");
+  const d = parsed.data;
+  if (!d.MOCK_MODEL && !d.OPENAI_API_KEY && !d.ANTHROPIC_API_KEY && d.NODE_ENV === "production") {
+    throw new Error("Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY in production (MOCK_MODEL is for development/tests only).");
   }
+  if (d.ADA_MODEL_PROVIDER === "openai" && !d.OPENAI_API_KEY && !d.MOCK_MODEL) throw new Error("ADA_MODEL_PROVIDER=openai but OPENAI_API_KEY is not set.");
+  if (d.ADA_MODEL_PROVIDER === "anthropic" && !d.ANTHROPIC_API_KEY && !d.MOCK_MODEL) throw new Error("ADA_MODEL_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set.");
   cached = parsed.data;
   return cached;
 }
@@ -48,5 +67,5 @@ export function resetEnvCache() {
 /** True when the deterministic development model is in use (explicitly, or because no key is configured outside production). */
 export function usingMockModel(): boolean {
   const e = env();
-  return e.MOCK_MODEL || !e.OPENAI_API_KEY;
+  return e.MOCK_MODEL || (!e.OPENAI_API_KEY && !e.ANTHROPIC_API_KEY);
 }

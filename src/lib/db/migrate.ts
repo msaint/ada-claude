@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import postgres from "postgres";
+import { connectionOptions } from "./options";
 
 /** Applies db/migrations/*.sql in order, tracking them in schema_migrations. */
 export async function migrate(databaseUrl: string, opts: { reset?: boolean; log?: (m: string) => void } = {}) {
   const log = opts.log ?? (() => {});
   await ensureDatabase(databaseUrl, log);
-  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  const sql = postgres(databaseUrl, connectionOptions(databaseUrl, { max: 1 }));
   try {
     if (opts.reset) {
       await sql.unsafe("drop schema public cascade; create schema public;");
@@ -35,7 +36,7 @@ async function ensureDatabase(databaseUrl: string, log: (m: string) => void) {
   const dbName = url.pathname.replace(/^\//, "");
   if (!/^[a-zA-Z0-9_]+$/.test(dbName)) throw new Error("Unsupported database name");
   url.pathname = "/postgres";
-  const admin = postgres(url.toString(), { max: 1, onnotice: () => {} });
+  const admin = postgres(url.toString(), { ...connectionOptions(databaseUrl, { max: 1 }), connect_timeout: 10 });
   try {
     const rows = await admin`select 1 from pg_database where datname = ${dbName}`;
     if (rows.length === 0) {

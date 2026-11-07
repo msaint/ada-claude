@@ -11,7 +11,7 @@ This repository is the P0 web MVP described in [`docs/ADA_CODEX_BUILD_SPEC.md`](
 - **Next.js 16** (App Router, TypeScript strict), React 19, Tailwind CSS v4, lucide icons
 - **PostgreSQL 15+** through `postgres` (postgres.js). SQL migrations live in `db/migrations`.
 - **Auth:** email + password (scrypt), server-side sessions in Postgres, HttpOnly SameSite=Lax cookie
-- **AI:** a `LearningModel` interface (`src/lib/ai/model-adapter.ts`) with an **OpenAI** adapter: JSON output, Zod validation, one repair retry, retries with jitter, timeouts, per-operation token budgets. There is also a deterministic **development model** for offline dev and tests. Whenever it is active, the UI says so in a banner.
+- **AI:** a `LearningModel` interface (`src/lib/ai/model-adapter.ts`) with **OpenAI** and **Anthropic** transports (either can be primary, the other is an automatic fallback); both: JSON output, Zod validation, one repair retry, retries with jitter, timeouts, per-operation token budgets. There is also a deterministic **development model** for offline dev and tests. Whenever it is active, the UI says so in a banner.
 - **Tests:** Vitest (unit + DB integration + React Testing Library), Playwright (E2E)
 
 ## Run locally
@@ -44,11 +44,12 @@ If the database in `DATABASE_URL` doesn't exist, `db:migrate` creates it, provid
 
 | Setting | Behavior |
 |---|---|
-| `OPENAI_API_KEY` set, `MOCK_MODEL` unset or false | Real model via OpenAI. Model IDs come from the `ADA_MODEL_*` variables. |
+| One of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` set | That provider serves every call. |
+| Both keys set | `ADA_MODEL_PROVIDER` (default `openai`) is tried first; on timeouts, outages or unusable output the other provider runs the same operation (`ADA_MODEL_FALLBACK=false` to disable). |
 | `MOCK_MODEL=true`, or no key outside production | Deterministic development model. A **yellow banner** says the content is placeholder, not real AI. |
 | `NODE_ENV=production` with no key and no mock | Startup error. Production never silently falls back. |
 
-`OPENAI_BASE_URL` lets you point the adapter at an OpenAI-compatible endpoint.
+Model IDs per operation: `ADA_MODEL_*` (OpenAI) and `ADA_ANTHROPIC_MODEL_*` (Anthropic, default `claude-opus-5-5`). `model_usage` records which provider and model served each call.
 
 ## Scripts
 
@@ -60,7 +61,7 @@ If the database in `DATABASE_URL` doesn't exist, `db:migrate` creates it, provid
 | `npm test` | Vitest unit and integration tests. Integration tests reset and migrate `TEST_DATABASE_URL` (default `postgres://postgres:postgres@localhost:5432/ada_test`). |
 | `npm run test:e2e` | Playwright. Resets `ada_e2e`, builds into `.next-e2e`, starts on port 3100 with the dev model, and runs the journeys. Override the database with `E2E_DATABASE_URL`. |
 | `npm run db:migrate` / `db:reset` | Apply migrations / reset the schema |
-| `npm run smoke:model` | **Manual real-model smoke test.** Needs `OPENAI_API_KEY`. Runs four topics, including an unseen niche one, and prints the clarification, curriculum, activities and grading output for a human to review. Pass your own topics as arguments. |
+| `npm run smoke:model` | **Manual real-model smoke test.** Needs a provider key; `-- --provider anthropic` or `openai` tests one in isolation. Runs four topics, including an unseen niche one, and prints the clarification, curriculum, activities and grading output for a human to review. Pass your own topics as arguments. |
 
 ## Architecture
 
@@ -98,12 +99,7 @@ How answers are graded:
 
 ## Deployment
 
-The app runs on any Node host (Vercel or similar) with a managed Postgres.
-
-1. Provision Postgres and set `DATABASE_URL`. Set `OPENAI_API_KEY` and the `ADA_MODEL_*` IDs. Set `APP_BASE_URL` to your https origin, which makes the session cookie `Secure`.
-2. Run `npm run db:migrate` against production as a release step.
-3. Leave `MOCK_MODEL` unset. Optionally tune `ADA_MODEL_CALLS_PER_MINUTE` and `ADA_MODEL_CALLS_PER_DAY`, the per-user cost guards.
-4. Serve over HTTPS. The security headers are set in `next.config.ts`.
+Step-by-step for Vercel + Supabase + OpenAI/Anthropic: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Privacy
 
