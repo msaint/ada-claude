@@ -45,7 +45,7 @@ export type CourseDraftView = {
   devModel: boolean;
 };
 
-export type NextAction = { kind: "learn" | "review" | "explore"; label: string };
+export type NextAction = { kind: "learn" | "review" | "explore" | "placement" | "assessment"; label: string };
 
 export type CourseHeader = {
   id: string;
@@ -57,7 +57,7 @@ export type CourseHeader = {
   goal: { version: number; text: string; successCriteria: string[]; timeBudgetMinutesWeekly: number | null; createdAt: string };
   goalHistory: { version: number; text: string; reason: string | null; createdAt: string }[];
   nextAction: NextAction;
-  openSession: { id: string; kind: "lesson" | "review"; status: "active" | "paused" } | null;
+  openSession: { id: string; kind: "lesson" | "review" | "placement" | "assessment"; status: "active" | "paused" } | null;
   reviewDueCount: number;
 };
 
@@ -79,6 +79,24 @@ export type ActivityFeedback = {
   exampleAnswer?: string;
   submittedText?: string;
   skipped?: boolean;
+  /** The answer is held back (Socratic: a narrower question comes next). "Show me the answer" reveals it. */
+  withheld?: boolean;
+  /** The learner chose to see a withheld answer. */
+  revealed?: boolean;
+};
+
+export type SessionKindDTO = "lesson" | "review" | "placement" | "assessment";
+
+export type SessionSummary = {
+  reason: string;
+  assessed: number;
+  correct: number;
+  conceptsTouched: string[];
+  /** Placement: what each probe showed, and where Ada suggests starting. */
+  placement?: { conceptId: string; title: string; result: "correct" | "partial" | "incorrect" | "unknown" }[];
+  suggestedConceptId?: string | null;
+  /** Final mixed assessment outcome. */
+  assessment?: { passed: boolean; missed: string[] };
 };
 
 export type SessionPhase = "choosing_next" | "awaiting_response" | "evaluating" | "feedback" | "paused" | "completed";
@@ -86,8 +104,10 @@ export type SessionPhase = "choosing_next" | "awaiting_response" | "evaluating" 
 export type SessionView = {
   id: string;
   courseId: string;
-  kind: "lesson" | "review";
+  kind: SessionKindDTO;
   status: "active" | "paused" | "completed";
+  /** Learner's harder/easier choice for this session: -1, 0 or +1. */
+  difficultyOffset: number;
   phase: SessionPhase;
   position: number;
   activity: LearnerActivity | null;
@@ -95,7 +115,7 @@ export type SessionView = {
   hints: string[];
   altExplanations: string[];
   feedback: ActivityFeedback | null;
-  summary: { reason: string; assessed: number; correct: number; conceptsTouched: string[] } | null;
+  summary: SessionSummary | null;
   devModel: boolean;
   aiGenerated: boolean;
 };

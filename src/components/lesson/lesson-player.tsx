@@ -10,7 +10,8 @@ import { ActivityView } from "./activity-renderer";
 import { FeedbackPanel } from "./feedback";
 
 type View = SessionView & { error?: InlineErrorT | null };
-type Busy = null | "start" | "submit" | "next" | "hint" | "explain" | "pause" | "skip";
+type Busy = null | "start" | "submit" | "next" | "hint" | "explain" | "pause" | "skip" | "reveal" | "difficulty";
+const KIND_LABEL: Record<SessionView["kind"], string> = { lesson: "Lesson", review: "Review", placement: "Placement", assessment: "Final check" };
 
 export function LessonPlayer({
   courseId,
@@ -23,7 +24,7 @@ export function LessonPlayer({
   initialSession: View | null;
   nextAction: NextAction;
   intent: "curiosity" | "goal";
-  autoStart: { kind?: "review"; focusConceptId?: string } | null;
+  autoStart: { kind?: SessionView["kind"]; focusConceptId?: string } | null;
 }) {
   const router = useRouter();
   const [session, setSession] = useState<View | null>(initialSession);
@@ -85,7 +86,7 @@ export function LessonPlayer({
   );
 
   const start = useCallback(
-    (body: { kind?: "review" | "lesson"; focusConceptId?: string } = {}) =>
+    (body: { kind?: SessionView["kind"]; focusConceptId?: string } = {}) =>
       call("start", async () => (await api<{ session: View }>(`/courses/${courseId}/sessions`, { body })).session, { resetInput: true, retry: () => start(body) }).then(() => router.refresh()),
     [call, courseId, router],
   );
@@ -153,6 +154,19 @@ export function LessonPlayer({
     }
   }
 
+  /** "Show me the answer" on a withheld (Socratic) miss. */
+  async function reveal() {
+    if (!session?.activity) return;
+    const id = session.activity.id;
+    await call("reveal", async () => (await api<{ session: View }>(`/activities/${id}/reveal`, { body: {} })).session);
+  }
+
+  async function changeDifficulty(offset: -1 | 0 | 1) {
+    if (!session) return;
+    const id = session.id;
+    await call("difficulty", async () => (await api<{ session: View }>(`/sessions/${id}/difficulty`, { body: { offset } })).session);
+  }
+
   async function pause() {
     if (!session) return;
     if (saveTimer.current) {
@@ -169,15 +183,61 @@ export function LessonPlayer({
 
   if (!session || session.status === "completed") {
     const s = session?.summary;
+    const linkClass = "inline-flex min-h-11 items-center rounded-lg px-4 text-[0.95rem] text-muted hover:bg-surface hover:text-ink";
+    const RESULT_MARK: Record<string, string> = { correct: "✓", partial: "~", incorrect: "✗", unknown: "–" };
+    const RESULT_SR: Record<string, string> = { correct: "knew it", partial: "partly", incorrect: "not yet", unknown: "skipped" };
     return (
       <section aria-labelledby="learn-start" className="py-6">
         <div ref={focusRef} tabIndex={-1} className="focus:outline-none">
-          {s ? (
+          {s?.placement ? (
+            <>
+              <h2 id="learn-start" className="mb-2 text-xl font-semibold">Here&apos;s where you stand</h2>
+              <p className="mb-4 text-ink-soft">Placement is done. Ada uses this to skip what you already know.</p>
+              <ul className="mb-6 divide-y divide-line rounded-xl border border-line text-sm">
+                {s.placement.map((p) => (
+                  <li key={p.conceptId} className="flex items-center gap-3 px-4 py-2.5">
+                    <span aria-hidden className="w-4 text-center font-semibold">{RESULT_MARK[p.result]}</span>
+                    <span className="sr-only">{RESULT_SR[p.result]}: </span>
+                    <span className="min-w-0 flex-1 break-words">{p.title}</span>
+                    {p.conceptId !== s.suggestedConceptId && (
+                      <Button size="sm" variant="quiet" onClick={() => start({ kind: "lesson", focusConceptId: p.conceptId })}>
+                        Start here
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : s?.assessment ? (
+            <>
+              <h2 id="learn-start" className="mb-2 text-xl font-semibold">{s.assessment.passed ? "You passed the final check" : "Not yet — almost there"}</h2>
+              <p className="mb-6 text-ink-soft">
+                {s.assessment.passed
+                  ? "You answered across the whole course, including a problem that combines it. Your readiness estimate now reflects that."
+                  : `Practise these, then try again: ${s.assessment.missed.join(", ")}.`}
+              </p>
+            </>
+          ) : s ? (
             <>
               <h2 id="learn-start" className="mb-2 text-xl font-semibold">Session complete</h2>
               <p className="mb-6 text-ink-soft">
                 {s.assessed > 0 ? `You answered ${s.assessed} question${s.assessed === 1 ? "" : "s"}, ${s.correct} correct.` : "Nice work."}{" "}
                 {s.conceptsTouched.length > 0 && <>Covered: {s.conceptsTouched.join(", ")}.</>}
+              </p>
+            </>
+          ) : nextAction.kind === "placement" ? (
+            <>
+              <h2 id="learn-start" className="mb-2 text-xl font-semibold">{busy === "start" ? "Preparing your first question…" : "Find your starting point"}</h2>
+              <p className="mb-6 max-w-prose text-ink-soft">
+                Ada will ask a few questions, one at a time and from easy to hard, to see what you already know. Nothing is taught until it&apos;s done, and
+                answers aren&apos;t revealed, so you can skip anything you don&apos;t know.
+              </p>
+            </>
+          ) : nextAction.kind === "assessment" ? (
+            <>
+              <h2 id="learn-start" className="mb-2 text-xl font-semibold">{busy === "start" ? "Preparing the final check…" : "Ready for the final check"}</h2>
+              <p className="mb-6 max-w-prose text-ink-soft">
+                You&apos;ve shown every concept in this course. The final check mixes them: one question per concept and one problem that combines them. No hints.
               </p>
             </>
           ) : (
@@ -188,17 +248,40 @@ export function LessonPlayer({
           <Spinner label="Ada is preparing an activity for you…" />
         ) : (
           <div className="flex flex-wrap gap-2">
-            <Button variant="primary" onClick={() => start(nextAction.kind === "review" ? { kind: "review" } : {})}>
-              {s ? (nextAction.kind === "review" ? "Start review" : "Keep going") : nextAction.kind === "review" ? "Start review" : "Start"}
-            </Button>
-            {nextAction.kind === "review" && <Button onClick={() => start({ kind: "lesson" })}>Learn something new instead</Button>}
-            {s && (
-              <Link href={`/app/courses/${courseId}/progress`} className="inline-flex min-h-11 items-center rounded-lg px-4 text-[0.95rem] text-muted hover:bg-surface hover:text-ink">
+            {s?.placement ? (
+              <>
+                <Button variant="primary" onClick={() => start(s.suggestedConceptId ? { kind: "lesson", focusConceptId: s.suggestedConceptId } : { kind: "lesson" })}>
+                  {s.suggestedConceptId ? `Start with ${s.placement.find((p) => p.conceptId === s.suggestedConceptId)?.title ?? "the suggested concept"}` : "Start learning"}
+                </Button>
+                <Link href={`/app/courses/${courseId}/outline`} className={linkClass}>
+                  Choose another concept
+                </Link>
+              </>
+            ) : nextAction.kind === "placement" ? (
+              <>
+                <Button variant="primary" onClick={() => start({ kind: "placement" })}>Start placement</Button>
+                <Button onClick={() => start({ kind: "lesson" })}>Skip — start from the beginning</Button>
+              </>
+            ) : nextAction.kind === "assessment" ? (
+              <>
+                <Button variant="primary" onClick={() => start({ kind: "assessment" })}>Start final check</Button>
+                <Button onClick={() => start({ kind: "lesson" })}>Keep practising first</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="primary" onClick={() => start(nextAction.kind === "review" ? { kind: "review" } : { kind: "lesson" })}>
+                  {s ? (nextAction.kind === "review" ? "Start review" : "Keep going") : nextAction.kind === "review" ? "Start review" : "Start"}
+                </Button>
+                {nextAction.kind === "review" && <Button onClick={() => start({ kind: "lesson" })}>Learn something new instead</Button>}
+              </>
+            )}
+            {s && !s.placement && (
+              <Link href={`/app/courses/${courseId}/progress`} className={linkClass}>
                 See progress
               </Link>
             )}
             {intent === "curiosity" && s && (
-              <Link href={`/app/courses/${courseId}/outline`} className="inline-flex min-h-11 items-center rounded-lg px-4 text-[0.95rem] text-muted hover:bg-surface hover:text-ink">
+              <Link href={`/app/courses/${courseId}/outline`} className={linkClass}>
                 Explore a branch
               </Link>
             )}
@@ -228,12 +311,13 @@ export function LessonPlayer({
   const phase = session.phase;
   const answered = phase === "feedback" || phase === "evaluating";
   const assessable = a && (a.kind === "multiple_choice" || a.kind === "free_response");
+  const measuring = session.kind === "placement" || session.kind === "assessment";
 
   return (
-    <section aria-label={session.kind === "review" ? "Review" : "Lesson"} className="py-2">
+    <section aria-label={KIND_LABEL[session.kind]} className="py-2">
       <div className="mb-4 flex items-center justify-between text-xs text-muted">
         <span>
-          {session.kind === "review" ? "Review" : "Lesson"} · step {session.position || 1}
+          {KIND_LABEL[session.kind]} · step {session.position || 1}
           {a ? ` · ${a.conceptTitle}` : ""}
         </span>
         <Button variant="quiet" size="sm" onClick={pause} busy={busy === "pause"}>
@@ -285,21 +369,45 @@ export function LessonPlayer({
                   </span>
                 )}
               </div>
-              <div className="mt-3 flex flex-wrap gap-1" aria-label="Help">
-                {assessable && (
-                  <Button variant="quiet" size="sm" onClick={() => assist("hint")} busy={busy === "hint"} disabled={!!busy || session.hints.length >= 3}>
-                    Hint
-                  </Button>
+              <div className="mt-3 flex flex-wrap items-center gap-1" aria-label="Help">
+                {measuring ? (
+                  assessable && (
+                    <Button variant="quiet" size="sm" onClick={() => submit(true)} busy={busy === "skip"} disabled={!!busy}>
+                      I don&apos;t know
+                    </Button>
+                  )
+                ) : (
+                  <>
+                    {assessable && (
+                      <Button variant="quiet" size="sm" onClick={() => assist("hint")} busy={busy === "hint"} disabled={!!busy || session.hints.length >= 3}>
+                        Hint
+                      </Button>
+                    )}
+                    <Button variant="quiet" size="sm" onClick={() => assist("explain")} busy={busy === "explain"} disabled={!!busy || session.altExplanations.length >= 3}>
+                      Explain differently
+                    </Button>
+                    {(assessable || a.kind === "reflection") && (
+                      <Button variant="quiet" size="sm" onClick={() => submit(true)} busy={busy === "skip"} disabled={!!busy}>
+                        {a.kind === "reflection" ? "Skip" : "Show me the answer"}
+                      </Button>
+                    )}
+                  </>
                 )}
-                <Button variant="quiet" size="sm" onClick={() => assist("explain")} busy={busy === "explain"} disabled={!!busy || session.altExplanations.length >= 3}>
-                  Explain differently
-                </Button>
-                {(assessable || a.kind === "reflection") && (
-                  <Button variant="quiet" size="sm" onClick={() => submit(true)} busy={busy === "skip"} disabled={!!busy}>
-                    Skip
-                  </Button>
+                {session.kind === "lesson" && (
+                  <span className="ml-auto inline-flex items-center gap-1" role="group" aria-label="Question difficulty">
+                    <Button variant="quiet" size="sm" aria-pressed={session.difficultyOffset < 0} disabled={!!busy} onClick={() => changeDifficulty(session.difficultyOffset < 0 ? 0 : -1)} className={session.difficultyOffset < 0 ? "text-ink underline underline-offset-4" : ""}>
+                      Easier
+                    </Button>
+                    <Button variant="quiet" size="sm" aria-pressed={session.difficultyOffset > 0} disabled={!!busy} onClick={() => changeDifficulty(session.difficultyOffset > 0 ? 0 : 1)} className={session.difficultyOffset > 0 ? "text-ink underline underline-offset-4" : ""}>
+                      Harder
+                    </Button>
+                  </span>
                 )}
               </div>
+              {measuring && <p className="mt-2 text-xs text-muted">{session.kind === "placement" ? "No hints during placement. It's fine not to know — that's what this finds out." : "No hints during the final check."}</p>}
+              {session.kind === "lesson" && session.difficultyOffset !== 0 && (
+                <p className="mt-2 text-xs text-muted" aria-live="polite">{session.difficultyOffset > 0 ? "Harder questions from the next one." : "Easier questions from the next one."}</p>
+              )}
               {assessable && (session.hints.length > 0 || session.altExplanations.length > 0) && (
                 <p className="mt-2 text-xs text-muted">Help used — this answer will count as assisted practice.</p>
               )}
@@ -315,9 +423,16 @@ export function LessonPlayer({
                     Retry grading
                   </Button>
                 ) : (
-                  <Button ref={continueRef} variant="primary" onClick={next} busy={busy === "next"}>
-                    Continue
-                  </Button>
+                  <>
+                    <Button ref={continueRef} variant="primary" onClick={next} busy={busy === "next"}>
+                      Continue
+                    </Button>
+                    {session.feedback.withheld && session.kind === "lesson" && (
+                      <Button variant="quiet" onClick={reveal} busy={busy === "reveal"} disabled={!!busy}>
+                        Show me the answer
+                      </Button>
+                    )}
+                  </>
                 )}
               </div>
             </div>

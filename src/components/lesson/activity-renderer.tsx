@@ -30,6 +30,12 @@ export function ActivityView(props: {
     review: "Review",
     transfer: "Stretch",
     reflect: "Reflect",
+    probe: "Look closer",
+    defend: "Defend your answer",
+    recall: "Quick recall",
+    placement: "Placement — answer what you can",
+    final: "Final check",
+    integrative: "Final check — putting it together",
   };
 
   return (

@@ -85,11 +85,38 @@ test("goal journey: clarifications (incl. free text) → first lesson → eviden
   await expect(page.getByText(/Estimated readiness for/)).toBeVisible();
   await expect(page.getByText("Not enough evidence yet").first()).toBeVisible();
 
+  // New goal courses open with a placement diagnostic: no teaching, no hints, answers withheld.
   await page.getByRole("link", { name: "Learn", exact: true }).click();
-  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Find your starting point" })).toBeVisible();
+  await page.getByRole("button", { name: "Start placement" }).click();
+  const results = page.getByRole("heading", { name: "Here's where you stand" });
+  for (let i = 0; i < 6; i++) {
+    await expect(page.getByText("Placement — answer what you can").or(results)).toBeVisible();
+    if (await results.isVisible()) break;
+    await expect(page.getByRole("button", { name: "Hint" })).toHaveCount(0);
+    if ((await page.getByRole("radio").count()) > 0) await page.getByRole("radio").first().check();
+    else await page.getByLabel("Your answer").fill("It works because each step leads to the next, which means the script runs.");
+    await page.getByRole("button", { name: "Check answer" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
+  }
+  await expect(results).toBeVisible();
+  await page.getByRole("button", { name: /^Start (with|learning)/ }).click();
+
+  // The lesson begins where placement suggested; work to the first question, then use a hint.
+  const hintButton = page.getByRole("button", { name: "Hint" });
+  const continueButton = page.getByRole("button", { name: "Continue" });
+  for (let i = 0; i < 3; i++) {
+    await expect(hintButton.or(continueButton).first()).toBeVisible();
+    if (await hintButton.isVisible()) break;
+    await continueButton.click(); // past an explanation
+    await expect(continueButton).toHaveCount(0);
+  }
+  await expect(page.getByRole("button", { name: "Harder" })).toBeVisible();
   await page.getByRole("button", { name: "Hint" }).click();
   await expect(page.getByText("Help used")).toBeVisible();
-  await page.getByRole("radio").first().check();
+  if ((await page.getByRole("radio").count()) > 0) await page.getByRole("radio").first().check();
+  else await page.getByLabel("Your answer").fill("It works because each step leads to the next, which means the script runs.");
   await page.getByRole("button", { name: "Check answer" }).click();
   await expect(page.getByRole("region", { name: "Feedback" })).toBeVisible();
 

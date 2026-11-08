@@ -83,6 +83,14 @@ export type ActivityContext = {
   priorPrompts: string[];
   assistanceUsed: number;
   linkContext?: string | null;
+  /** Rotating question form (predict, explain why, find the flaw, apply, connect) for variety. */
+  questionForm?: string | null;
+  /** For probe/defend: the learner's previous answer on this concept. */
+  followUp?: { promptMarkdown: string; learnerAnswer: string; answerKey?: string | null; misconception?: string | null } | null;
+  /** For the integrative final question: every concept the course covers. */
+  courseConcepts?: string[];
+  /** The learner asked for harder (+1) or easier (-1) questions this session. */
+  difficultyPreference?: number;
 };
 
 export type EvaluationContext = {
@@ -92,6 +100,8 @@ export type EvaluationContext = {
   rubric: { criterion: string; importance: number }[];
   idealAnswer: string;
   response: string;
+  /** Socratic mode: feedback must point at the gap without stating the answer. */
+  withholdAnswer?: boolean;
 };
 
 export type ExplainContext = {

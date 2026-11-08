@@ -6,7 +6,7 @@ import { estimateReadiness } from "@/lib/learning/readiness";
 import { formatInZone } from "@/lib/learning/review-scheduler";
 import type { CourseHeader, CourseListItem, CourseProgress, OutlineView } from "@/lib/schemas/dto";
 import { insertConcepts } from "./drafts";
-import { computeNextAction, loadActiveGoal, loadConceptStates, loadCourse, loadPlan, type ConceptState } from "./learning-state";
+import { computeNextAction, loadActiveGoal, loadConceptStates, loadCourse, loadFinalPassed, loadPlan, type ConceptState } from "./learning-state";
 import { track } from "./telemetry";
 
 export async function listCourses(ownerId: string): Promise<CourseListItem[]> {
@@ -33,9 +33,10 @@ export async function getCourseHeader(ownerId: string, courseId: string, touch =
   const goal = await loadActiveGoal(db(), course);
   const history = await db()<{ version: number; goal_text: string; reason: string | null; created_at: Date }[]>`
     select version, goal_text, reason, created_at from course_goal_versions where course_id = ${courseId} order by version desc`;
-  const [open] = await db()<{ id: string; kind: "lesson" | "review"; status: "active" | "paused" }[]>`
+  const [open] = await db()<{ id: string; kind: "lesson" | "review" | "placement" | "assessment"; status: "active" | "paused" }[]>`
     select id, kind, status from sessions where course_id = ${courseId} and status in ('active','paused') limit 1`;
   const concepts = await loadConceptStates(db(), courseId);
+  const finalPassed = await loadFinalPassed(db(), courseId);
   return {
     id: course.id,
     title: course.title,
@@ -45,7 +46,7 @@ export async function getCourseHeader(ownerId: string, courseId: string, touch =
     version: course.version,
     goal: { version: goal.version, text: goal.goal_text, successCriteria: goal.success_criteria_json, timeBudgetMinutesWeekly: goal.time_budget_minutes_weekly, createdAt: goal.created_at.toISOString() },
     goalHistory: history.map((h) => ({ version: h.version, text: h.goal_text, reason: h.reason, createdAt: h.created_at.toISOString() })),
-    nextAction: computeNextAction(concepts, course.intent, open ?? null),
+    nextAction: computeNextAction(concepts, course.intent, open ?? null, { finalPassed }),
     openSession: open ?? null,
     reviewDueCount: concepts.filter((c) => c.display === "review_due").length,
   };
@@ -202,6 +203,7 @@ export async function getProgress(ownerId: string, courseId: string, timezone: s
     select c.title, r.due_at from review_items r join concepts c on c.id = r.concept_id
     where r.course_id = ${courseId} and r.status = 'active' order by r.due_at limit 10`;
   const now = new Date();
+  const finalPassed = await loadFinalPassed(db(), courseId);
   const progress: CourseProgress = {
     courseId,
     intent: course.intent,
@@ -211,12 +213,13 @@ export async function getProgress(ownerId: string, courseId: string, timezone: s
     needsPractice: concepts.filter((c) => c.mastery === "developing").map((c) => ({ title: c.title, reason: c.masteryReason })),
     dueToRevisit: reviews.map((r) => ({ conceptTitle: r.title, dueAt: r.due_at.toISOString(), dueLabel: r.due_at <= now ? "Due now" : formatInZone(r.due_at, timezone) })),
     activity: counts,
-    nextAction: computeNextAction(concepts, course.intent, open ?? null),
+    nextAction: computeNextAction(concepts, course.intent, open ?? null, { finalPassed }),
   };
   if (course.intent === "goal") {
     const required = concepts.filter((c) => c.inPlan);
     progress.readiness = estimateReadiness(
       required.map((c) => ({ slug: c.slug, title: c.title, status: c.display, importance: c.importance, prerequisites: c.prerequisiteIds.map((p) => concepts.find((x) => x.id === p)?.slug ?? ""), evidenceCount: c.evidenceCount })),
+      { finalAssessmentPassed: finalPassed },
     );
   } else {
     const explored = await db()<{ concept_id: string }[]>`select distinct concept_id from activities where course_id = ${courseId}`;
