@@ -8,6 +8,7 @@ All development happens in the cloud. Nothing depends on a local machine. Where 
 - The OpenAI key is **not** in the sandbox. It is a network secret on the environment, which the proxy injects into requests to `api.openai.com`. The SDK still needs a placeholder to start:
   `OPENAI_API_KEY=placeholder npm run smoke:model -- --provider openai "Black holes"`
 - Claude environments don't accept a user Anthropic key for `api.anthropic.com`, so the Anthropic path is tested on a **Vercel preview deployment** (the key lives in Vercel → Preview env vars) or by the GitHub `Model smoke test` workflow if one is added later. Don't try to put an Anthropic key in the session.
+- Vercel: the CLI is installed by the setup script, and a Vercel token is a network secret for `api.vercel.com`. Pass a placeholder token with no dashes, e.g. `vercel whoami --token placeholder`. Never run `vercel login` (it would write a token into the container) or `vercel env pull` (it writes secrets to a file).
 - Never put real secrets in the repo, in `.env.local`, or in the environment's setup script or plain variables.
 - Never connect to the production or staging Supabase databases from a session. Schema changes reach them only through the GitHub Actions `Migrate database` workflow.
 
