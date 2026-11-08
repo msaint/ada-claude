@@ -53,7 +53,7 @@ export class AnthropicTransport implements JsonTransport {
           system: req.system,
           messages,
           ...(req.webFetch ? { tools: [WEB_FETCH_TOOL] } : {}),
-          ...(this.opts.effort ? { output_config: { effort: this.opts.effort } } : {}),
+          ...((req.effort ?? this.opts.effort) ? { output_config: { effort: (req.effort ?? this.opts.effort) as AnthropicEffort } } : {}),
           betas: ["server-side-fallback-2026-07-01"],
           fallbacks: "default",
         },

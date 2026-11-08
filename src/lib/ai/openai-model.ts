@@ -25,6 +25,8 @@ export type TransportRequest = {
   timeoutMs: number;
   /** Let the provider fetch URLs present in the request (only providers with a server-side fetch tool honor it). */
   webFetch?: boolean;
+  /** Reasoning effort for this operation (providers that support it). */
+  effort?: string;
 };
 
 export interface JsonTransport {
@@ -67,7 +69,10 @@ export class OpenAITransport implements JsonTransport {
   }
 }
 
-type Op = "clarify" | "compile" | "expand" | "activity" | "evaluate" | "explain" | "hint";
+export type Op = "clarify" | "compile" | "expand" | "activity" | "evaluate" | "explain" | "hint";
+/** Learner-facing quick operations vs. operations that benefit from deeper reasoning. */
+export const FAST_OPS: Op[] = ["clarify", "activity", "hint", "explain"];
+export const DEEP_OPS: Op[] = ["compile", "expand", "evaluate"];
 const BUDGET: Record<Op, number> = { clarify: 1200, compile: 3000, expand: 2000, activity: 2200, evaluate: 1000, explain: 1200, hint: 300 };
 
 export function isTransient(err: unknown): boolean {
@@ -86,7 +91,7 @@ export class LLMLearningModel implements LearningModel {
   constructor(
     private transport: JsonTransport,
     private models: ModelIds,
-    private opts: { timeoutMs: number; maxTransientRetries?: number; retryBaseMs?: number; provider?: string } = { timeoutMs: 45000 },
+    private opts: { timeoutMs: number; maxTransientRetries?: number; retryBaseMs?: number; provider?: string; effortByOp?: Partial<Record<Op, string>> } = { timeoutMs: 45000 },
   ) {
     this.provider = opts.provider ?? "openai";
   }
@@ -161,6 +166,7 @@ export class LLMLearningModel implements LearningModel {
           maxTokens: BUDGET[op],
           timeoutMs: this.opts.timeoutMs,
           webFetch,
+          effort: this.opts.effortByOp?.[op],
         });
       } catch (err) {
         const transient = isTransient(err);

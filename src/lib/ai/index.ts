@@ -3,7 +3,7 @@ import { db } from "@/lib/db/client";
 import { AppError, ModelError } from "@/lib/errors";
 import type { LearningModel, WithInfo } from "./model-adapter";
 import { MockLearningModel } from "./mock-model";
-import { LLMLearningModel, OpenAITransport } from "./openai-model";
+import { DEEP_OPS, FAST_OPS, LLMLearningModel, OpenAITransport, type Op } from "./openai-model";
 import { AnthropicTransport } from "./anthropic-model";
 import { FallbackLearningModel } from "./fallback-model";
 
@@ -28,9 +28,9 @@ export function buildModel(): LearningModel {
     : null;
   const anthropic = e.ANTHROPIC_API_KEY
     ? new LLMLearningModel(
-        new AnthropicTransport(e.ANTHROPIC_API_KEY, { effort: e.ADA_ANTHROPIC_EFFORT }),
+        new AnthropicTransport(e.ANTHROPIC_API_KEY),
         { clarify: e.ADA_ANTHROPIC_MODEL_CLARIFY, compile: e.ADA_ANTHROPIC_MODEL_COMPILE, tutor: e.ADA_ANTHROPIC_MODEL_TUTOR, evaluate: e.ADA_ANTHROPIC_MODEL_EVALUATE },
-        { timeoutMs: e.ADA_MODEL_TIMEOUT_MS, provider: "anthropic" },
+        { timeoutMs: e.ADA_MODEL_TIMEOUT_MS, provider: "anthropic", effortByOp: anthropicEffortByOp() },
       )
     : null;
   const preferAnthropic = e.ADA_MODEL_PROVIDER === "anthropic" || (!e.ADA_MODEL_PROVIDER && !openai);
@@ -78,4 +78,15 @@ export async function callModel<T>(ownerId: string, operation: string, fn: (m: L
     if (err instanceof AppError) throw err;
     throw new ModelError("model_unavailable", "The model failed unexpectedly.", true);
   }
+}
+
+/**
+ * Per-operation reasoning effort for Claude. Quick learner-facing operations
+ * default to "low" (snappier), planning and grading to "medium".
+ */
+export function anthropicEffortByOp(): Record<Op, string> {
+  const e = env();
+  const fast = e.ADA_ANTHROPIC_EFFORT_FAST ?? e.ADA_ANTHROPIC_EFFORT ?? "low";
+  const deep = e.ADA_ANTHROPIC_EFFORT_DEEP ?? e.ADA_ANTHROPIC_EFFORT ?? "medium";
+  return Object.fromEntries([...FAST_OPS.map((op) => [op, fast]), ...DEEP_OPS.map((op) => [op, deep])]) as Record<Op, string>;
 }

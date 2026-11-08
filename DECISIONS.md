@@ -71,5 +71,13 @@ See `THIRD_PARTY_NOTICES.md`. All rules live in the server-owned planner and mas
 6. **Final mixed assessment** (goal courses). It unlocks when every plan concept is demonstrated: one question per plan concept (up to 8, most important first) plus one integrative problem, no hints. Pass = every per-concept question correct and the integrative problem correct or partial. The readiness band "Demonstrated" now requires a pass since the current curriculum version; until then it is "Approaching".
 Not adopted: percentage progress bars (conflict with invariant 9), and "course ends only at mastery" (curiosity courses have no finish line).
 
+### D18. Snappier lessons: preparing the next activity in the background
+Most waiting was model latency for generating the next activity *after* the learner clicked Continue.
+- **Prepare on grading (adaptive, no extra cost).** As soon as an answer is graded, the server runs the planner with the real result and generates the next activity in the background (`after()` on Vercel) while the learner reads feedback. This includes Socratic probes, which use the actual answer.
+- **Prepare on presentation (only when the outcome can't matter).** When an activity appears, the planner is run for both hypothetical outcomes (correct / incorrect, with that concept's mastery simulated). If both lead to the same next step (after explanations and predictions, and throughout placement and the final check), it is prepared immediately. Otherwise Ada waits for grading. Both outcomes are never generated speculatively.
+- **Matching and safety.** A prepared activity is used only if its signature (concept, kind, purpose, difficulty, review item) equals the planner's live decision. Otherwise, or if it failed or went stale, the step is generated live as before. Continue waits (bounded) for one still generating instead of starting a duplicate call. Session and activity locks are `FOR NO KEY UPDATE`, so background inserts (foreign-key share locks) never block on a waiting Continue. `model_info_json.prefetched` / `prefetchMode` / `prefetchWaitMs` record hit rate and wait.
+- **Per-operation effort for Claude.** Quick operations (setup questions, activities, hints, explanations) default to `low`, planning and grading to `medium` (`ADA_ANTHROPIC_EFFORT_FAST` / `_DEEP`). Defaults favor responsiveness; compare quality on the preview.
+- **Grading** a free-text answer can't start before submission; the UI says "Grading your answer…".
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.

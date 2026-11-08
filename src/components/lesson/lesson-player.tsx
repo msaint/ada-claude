@@ -365,7 +365,7 @@ export function LessonPlayer({
                 </Button>
                 {(a.kind === "free_response" || a.kind === "reflection") && (
                   <span className="text-xs text-muted" aria-live="polite">
-                    {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Draft saved" : saveState === "conflict" ? "Edited in another tab — your latest text here will be kept" : "Enter to submit · Shift+Enter for a new line"}
+                    {busy === "submit" && a.kind === "free_response" ? "Grading your answer…" : saveState === "saving" ? "Saving…" : saveState === "saved" ? "Draft saved" : saveState === "conflict" ? "Edited in another tab — your latest text here will be kept" : "Enter to submit · Shift+Enter for a new line"}
                   </span>
                 )}
               </div>

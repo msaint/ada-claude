@@ -16,7 +16,12 @@ const EnvSchema = z.object({
   ADA_ANTHROPIC_MODEL_COMPILE: z.string().default("claude-opus-5-5"),
   ADA_ANTHROPIC_MODEL_TUTOR: z.string().default("claude-opus-5-5"),
   ADA_ANTHROPIC_MODEL_EVALUATE: z.string().default("claude-opus-5-5"),
+  /** Fallback effort for all operations (optional). */
   ADA_ANTHROPIC_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  /** Effort for quick, learner-facing operations: setup questions, activities, hints, explanations. */
+  ADA_ANTHROPIC_EFFORT_FAST: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  /** Effort for course planning, plan revisions and free-response grading. */
+  ADA_ANTHROPIC_EFFORT_DEEP: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
   ADA_MODEL_CLARIFY: z.string().default("gpt-4.1-mini"),
   ADA_MODEL_COMPILE: z.string().default("gpt-4.1"),
   ADA_MODEL_TUTOR: z.string().default("gpt-4.1-mini"),
@@ -49,6 +54,8 @@ export function env(): Env {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
     ADA_MODEL_PROVIDER: process.env.ADA_MODEL_PROVIDER || undefined,
     ADA_ANTHROPIC_EFFORT: process.env.ADA_ANTHROPIC_EFFORT || undefined,
+    ADA_ANTHROPIC_EFFORT_FAST: process.env.ADA_ANTHROPIC_EFFORT_FAST || undefined,
+    ADA_ANTHROPIC_EFFORT_DEEP: process.env.ADA_ANTHROPIC_EFFORT_DEEP || undefined,
   });
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
