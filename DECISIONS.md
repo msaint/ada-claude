@@ -47,5 +47,12 @@ If reviews are due, starting a session defaults to a **review** session: up to 3
 ### D14. Hosted-Postgres hardening
 Migration `0002` enables RLS (no policies) on every table so a hosted Data API (e.g. Supabase PostgREST with the anon key) can read nothing; the app connects as the table owner and is unaffected. The DB client disables prepared statements on Supabase's transaction pooler (port 6543), requires TLS for non-local hosts, and uses small per-instance pools on Vercel. `db:reset` refuses non-local databases.
 
+### D15. Try before signing up: guest users
+**Change from the spec:** P0 asked for sign-in first. Visitors can now create their first course immediately.
+- **Identity:** submitting the first topic calls `POST /api/v1/auth/guest`, which creates a *guest* user (no email/password) and a 14-day HttpOnly session. All existing ownership checks, idempotency and cascades apply unchanged, because a guest is a normal user row.
+- **Limits:** one course per guest, enforced in the service layer with a row lock (`account_required`, HTTP 403), and a smaller daily model budget (`ADA_GUEST_MODEL_CALLS_PER_DAY`, default 60). Any `account_required` response opens an account dialog in the UI.
+- **Keeping progress:** sign-up upgrades the guest row in place, so everything is kept. Signing into an existing account reassigns everything the guest owns to that account and deletes the guest.
+- **Abuse and cleanup:** guest creation is the one unauthenticated mutation. It is rate-limited per client IP (stored only as a truncated SHA-256, `ADA_GUEST_CREATIONS_PER_HOUR`). Guests whose sessions have all expired are purged with their data, opportunistically on each new guest creation. A scheduled job would make this independent of traffic (P1).
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.

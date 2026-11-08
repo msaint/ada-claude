@@ -1,4 +1,4 @@
-import { db, json, tx, type Tx } from "@/lib/db/client";
+import { db, json, tx, type Db, type Tx } from "@/lib/db/client";
 import { AppError, conflict, notFound } from "@/lib/errors";
 import { callModel } from "@/lib/ai";
 import { usingMockModel } from "@/lib/env";
@@ -181,8 +181,28 @@ async function advance(t: Tx, row: DraftRow): Promise<DraftRow> {
   }
 }
 
+export const GUEST_COURSE_LIMIT = 1;
+
+/**
+ * Guests may create one course. Reads the guest flag from the database (never
+ * from the client) and, inside a transaction, locks the user row so concurrent
+ * conversions can't both slip under the limit.
+ */
+export async function assertGuestMayCreateCourse(t: Db, ownerId: string, lock = false) {
+  const [u] = lock
+    ? await t<{ is_guest: boolean }[]>`select is_guest from users where id = ${ownerId} for update`
+    : await t<{ is_guest: boolean }[]>`select is_guest from users where id = ${ownerId}`;
+  if (!u?.is_guest) return;
+  const [{ n }] = await t<{ n: number }[]>`select count(*)::int as n from courses where owner_id = ${ownerId}`;
+  if (n >= GUEST_COURSE_LIMIT) {
+    throw new AppError("account_required", "Create a free account to make another course. Your current course comes with you.");
+  }
+}
+
 export async function createDraft(ownerId: string, topic: string, idempotencyKey: string): Promise<CourseDraftView> {
   const clean = topic.replace(/\s+/g, " ").trim();
+  const [already] = await db()<{ id: string }[]>`select id from course_drafts where owner_id = ${ownerId} and idempotency_key = ${idempotencyKey}`;
+  if (!already) await assertGuestMayCreateCourse(db(), ownerId);
   const created = await db()<DraftRow[]>`
     insert into course_drafts (owner_id, topic, idempotency_key, state_json)
     values (${ownerId}, ${clean}, ${idempotencyKey}, ${json(emptyState())})
@@ -271,6 +291,7 @@ export async function convertDraft(ownerId: string, draftId: string): Promise<{ 
     const row = await loadForUpdate(t, draftId, ownerId);
     if (row.status === "converted" && row.converted_course_id) return { courseId: row.converted_course_id, created: false };
     if (row.status !== "ready" || !row.proposal_json) throw conflict("The course plan isn't ready yet.");
+    await assertGuestMayCreateCourse(t, ownerId, true);
     const { curriculum: plan, interpretation: interp, modelInfo } = row.proposal_json;
     const [course] = await t<{ id: string }[]>`
       insert into courses (owner_id, draft_id, title, topic, intent)

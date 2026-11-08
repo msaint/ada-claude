@@ -10,6 +10,7 @@ export const SignUpBody = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
   timezone: z.string().max(64).optional(),
 });
+export const GuestBody = z.object({ timezone: z.string().max(64).optional() });
 export const SignInBody = z.object({ email: z.string().trim().max(254), password: z.string().max(200) });
 
 export const CreateDraftBody = z.object({

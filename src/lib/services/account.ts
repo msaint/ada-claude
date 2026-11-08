@@ -37,7 +37,8 @@ export async function postponeReview(ownerId: string, reviewId: string, days: nu
 
 export type Preferences = {
   displayName: string | null;
-  email: string;
+  email: string | null;
+  isGuest: boolean;
   timezone: string;
   remindersEnabled: boolean;
   emailOptIn: boolean;
@@ -45,11 +46,11 @@ export type Preferences = {
 };
 
 export async function getPreferences(ownerId: string): Promise<Preferences> {
-  const [r] = await db()<{ email: string; display_name: string | null; timezone: string; reminders_enabled: boolean; email_opt_in: boolean; quiet_hours_json: { start: string; end: string } }[]>`
-    select u.email, p.display_name, p.timezone, pr.reminders_enabled, pr.email_opt_in, pr.quiet_hours_json
+  const [r] = await db()<{ email: string | null; is_guest: boolean; display_name: string | null; timezone: string; reminders_enabled: boolean; email_opt_in: boolean; quiet_hours_json: { start: string; end: string } }[]>`
+    select u.email, u.is_guest, p.display_name, p.timezone, pr.reminders_enabled, pr.email_opt_in, pr.quiet_hours_json
     from users u join profiles p on p.user_id = u.id join user_preferences pr on pr.owner_id = u.id where u.id = ${ownerId}`;
   if (!r) throw notFound("Profile");
-  return { email: r.email, displayName: r.display_name, timezone: r.timezone, remindersEnabled: r.reminders_enabled, emailOptIn: r.email_opt_in, quietHours: r.quiet_hours_json };
+  return { email: r.email, isGuest: r.is_guest, displayName: r.display_name, timezone: r.timezone, remindersEnabled: r.reminders_enabled, emailOptIn: r.email_opt_in, quietHours: r.quiet_hours_json };
 }
 
 export async function updatePreferences(ownerId: string, p: Partial<Omit<Preferences, "email">>) {
@@ -95,8 +96,12 @@ export async function exportAccount(ownerId: string) {
 
 /** Permanently deletes the account and all learner data (cascades). Requires typing the account email. */
 export async function deleteAccount(ownerId: string, confirmEmail: string) {
-  const [u] = await db()<{ email: string }[]>`select email from users where id = ${ownerId}`;
+  const [u] = await db()<{ email: string | null; is_guest: boolean }[]>`select email, is_guest from users where id = ${ownerId}`;
   if (!u) throw notFound("Account");
-  if (u.email.toLowerCase() !== confirmEmail.trim().toLowerCase()) throw new AppError("validation_failed", "Type your account email to confirm deletion.");
+  // Guests have no email; they confirm by typing "delete".
+  const expected = u.is_guest ? "delete" : (u.email ?? "").toLowerCase();
+  if (expected !== confirmEmail.trim().toLowerCase()) {
+    throw new AppError("validation_failed", u.is_guest ? 'Type "delete" to confirm.' : "Type your account email to confirm deletion.");
+  }
   await db()`delete from users where id = ${ownerId}`;
 }

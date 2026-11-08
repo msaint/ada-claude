@@ -47,12 +47,17 @@ export function setModelOverride(m: LearningModel | undefined) {
 /** Enforces per-user model-call ceilings (rate limit + daily budget). */
 export async function assertModelBudget(ownerId: string) {
   const e = env();
-  const [row] = await db()<{ minute: number; day: number }[]>`
+  const [row] = await db()<{ minute: number; day: number; is_guest: boolean }[]>`
     select
-      count(*) filter (where created_at > now() - interval '1 minute')::int as minute,
-      count(*) filter (where created_at > now() - interval '1 day')::int as day
-    from model_usage where owner_id = ${ownerId} and created_at > now() - interval '1 day'`;
+      (select count(*) from model_usage m where m.owner_id = u.id and m.created_at > now() - interval '1 minute')::int as minute,
+      (select count(*) from model_usage m where m.owner_id = u.id and m.created_at > now() - interval '1 day')::int as day,
+      u.is_guest
+    from users u where u.id = ${ownerId}`;
+  if (!row) throw new AppError("unauthenticated", "Please sign in.");
   if (row.minute >= e.ADA_MODEL_CALLS_PER_MINUTE) throw new AppError("rate_limited", "You're going a little fast. Try again in a minute.", true);
+  if (row.is_guest && row.day >= e.ADA_GUEST_MODEL_CALLS_PER_DAY) {
+    throw new AppError("account_required", "You've reached today's guest limit. Create a free account to keep going.");
+  }
   if (row.day >= e.ADA_MODEL_CALLS_PER_DAY) throw new AppError("rate_limited", "Daily generation limit reached. Try again tomorrow.", false);
 }
 

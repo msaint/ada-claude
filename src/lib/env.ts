@@ -24,6 +24,10 @@ const EnvSchema = z.object({
   ADA_MODEL_TIMEOUT_MS: z.coerce.number().int().positive().default(45000),
   ADA_MODEL_CALLS_PER_MINUTE: z.coerce.number().int().positive().default(20),
   ADA_MODEL_CALLS_PER_DAY: z.coerce.number().int().positive().default(400),
+  /** Guests (no account) get a smaller daily model budget. */
+  ADA_GUEST_MODEL_CALLS_PER_DAY: z.coerce.number().int().positive().default(60),
+  /** New guest identities allowed per client IP per hour. */
+  ADA_GUEST_CREATIONS_PER_HOUR: z.coerce.number().int().positive().default(10),
   MOCK_MODEL: z
     .string()
     .optional()
