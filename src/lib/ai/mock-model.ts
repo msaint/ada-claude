@@ -79,6 +79,7 @@ export class MockLearningModel implements LearningModel {
             question: `What would you like to get out of learning about ${subject}?`,
             quick_replies: ["Just curious", "A specific skill or outcome", "Let Ada decide"],
             reason_code: "intent_unknown",
+            link_context: null,
           },
           info: info("clarify"),
         };
@@ -91,6 +92,7 @@ export class MockLearningModel implements LearningModel {
             question: `How much experience do you already have with ${subject}?`,
             quick_replies: ["None yet", "Some basics", "Fairly experienced"],
             reason_code: "baseline_affects_start",
+            link_context: null,
           },
           info: info("clarify"),
         };
@@ -103,6 +105,7 @@ export class MockLearningModel implements LearningModel {
             question: "How much time could you give this each week?",
             quick_replies: ["15 minutes", "1 hour", "3+ hours"],
             reason_code: "budget_affects_cadence",
+            link_context: null,
           },
           info: info("clarify"),
         };
@@ -115,6 +118,7 @@ export class MockLearningModel implements LearningModel {
             question: "Would you like a quick explanation or a deeper exploration?",
             quick_replies: ["Quick, five minutes", "A deeper exploration"],
             reason_code: "depth_affects_scope",
+            link_context: null,
           },
           info: info("clarify"),
         };
@@ -145,6 +149,7 @@ export class MockLearningModel implements LearningModel {
           time_budget_minutes_weekly: minutes ?? (intent === "goal" ? 60 : null),
           success_criteria: intent === "goal" ? [`Complete a small, realistic task using ${subject} without help`] : [],
           assumptions,
+          link_context: null,
         },
       },
       info: info("clarify"),

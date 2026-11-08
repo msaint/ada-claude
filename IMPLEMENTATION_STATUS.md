@@ -8,7 +8,7 @@ Last updated: 2026-11-07. Legend: ✅ done and tested · 🟡 partial · ⛔ blo
 |---|---|
 | `npm run typecheck` | ✅ pass |
 | `npm run lint` | ✅ pass (0 errors, 0 warnings) |
-| `npm test` | ✅ 91/91: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
+| `npm test` | ✅ 100/100: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
 | `npm run build` | ✅ pass |
 | `npm run test:e2e` | ✅ 8/8 Playwright: guest-first journey, curiosity journey, goal journey, sidebar and deletion, failure/retry, keyboard-only, mobile drawer, cross-user URL |
 | `npm run smoke:model` (real model) | ⛔ **not run** for either provider. No OpenAI or Anthropic key is available here, and this sandbox's network policy blocks `api.openai.com`. The adapter is covered by transport-level tests (valid output, malformed JSON → repair, cyclic graph → repair → clean failure, 429/5xx retry, timeout, non-transient error, kind enforcement). **Run it before relying on real-model quality.** |
@@ -18,6 +18,10 @@ All E2E and integration runs use the **deterministic development model**. They p
 ## Guest mode (try before sign-up)
 - ✅ Start a course with no account; guest banner; one-course limit and guest model budget (`account_required` → account dialog); sign-up keeps guest data in place; sign-in moves it into the existing account; per-IP guest creation limit; stale guest purge; guest data deletion. Covered by `tests/integration/guest.test.ts` and `tests/e2e/guest.spec.ts`.
 - 🟡 Stale guests are purged only when new guests arrive (no scheduled job yet).
+
+## Reading learner links
+- ✅ Claude server-side web fetch during setup for links in the learner's text; summary reused across calls and lessons; verified sources stored and shown ("Ada read: …"); calls with links routed to Anthropic when available; pause_turn handled. Covered by `tests/unit/web-fetch.test.ts` and `tests/integration/link-context.test.ts` (fake Claude client).
+- ⛔ Not yet exercised against the live Anthropic API (no key in the sandbox). Verify on the Vercel preview with a link-containing topic.
 
 ## Deployment support
 - ✅ Anthropic transport + OpenAI transport with automatic cross-provider fallback (provider selection and fallback unit-tested; Anthropic transport not exercised against the live API here).

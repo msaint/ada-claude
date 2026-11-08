@@ -39,6 +39,8 @@ export type CourseDraftView = {
     successCriteria: string[];
   };
   convertedCourseId?: string | null;
+  /** Pages Ada actually read (fetched by the model provider) while setting up. */
+  sourcesRead: { url: string; title: string | null }[];
   error?: InlineError | null;
   devModel: boolean;
 };

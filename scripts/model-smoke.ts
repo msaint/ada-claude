@@ -32,9 +32,9 @@ const topics = args.length
 
 async function run(topic: string) {
   console.log(`\n=== ${topic} ===`);
-  const q = await model.clarifyCourse({ topic, answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: false });
+  const q = await model.clarifyCourse({ topic, answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: false, linkContext: null });
   console.log("clarify:", JSON.stringify(q.value), `(${q.info.latencyMs}ms)`);
-  const ready = await model.clarifyCourse({ topic, answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: true });
+  const ready = await model.clarifyCourse({ topic, answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: true, linkContext: null });
   if (ready.value.status !== "ready") throw new Error("start-now did not return ready");
   const i = ready.value.interpretation;
   const c = await model.compileCurriculum({ topic, intent: i.intent, goalText: i.goal_text, depth: i.depth, baseline: i.baseline, timeBudgetMinutesWeekly: i.time_budget_minutes_weekly, successCriteria: i.success_criteria, assumptions: i.assumptions });

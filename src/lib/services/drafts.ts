@@ -2,7 +2,7 @@ import { db, json, tx, type Db, type Tx } from "@/lib/db/client";
 import { AppError, conflict, notFound } from "@/lib/errors";
 import { callModel } from "@/lib/ai";
 import { usingMockModel } from "@/lib/env";
-import type { ModelInfo } from "@/lib/ai/model-adapter";
+import type { FetchedSource, ModelInfo } from "@/lib/ai/model-adapter";
 import type { CourseDraftView, DraftTurn, InlineError } from "@/lib/schemas/dto";
 import type { CurriculumProposal, DraftField, Interpretation } from "@/lib/schemas/model";
 import { validateCurriculum } from "@/lib/learning/curriculum";
@@ -18,6 +18,10 @@ export type DraftState = {
   interpretation: Interpretation | null;
   adjustment: string | null;
   processedKeys: string[];
+  /** Summary of pages the learner linked, written by the model after reading them. */
+  linkContext?: string | null;
+  /** Pages the provider actually fetched (verified by the API, never model-invented). */
+  sources?: FetchedSource[];
 };
 export type DraftProposal = { curriculum: CurriculumProposal; interpretation: Interpretation; modelInfo: ModelInfo };
 
@@ -88,6 +92,7 @@ export function draftView(row: DraftRow): CourseDraftView {
       : undefined,
     convertedCourseId: row.converted_course_id,
     error: row.last_error,
+    sourcesRead: (s.sources ?? []).map((x) => ({ url: x.url, title: x.title })),
     devModel: usingMockModel(),
   };
 }
@@ -104,6 +109,7 @@ export function fallbackInterpretation(topic: string, answers: DraftAnswer[]): I
     time_budget_minutes_weekly: null,
     success_criteria: [],
     assumptions: ["Standard depth", "Starting from the basics", curious ? "Open-ended exploration" : "Goal taken from your answer"],
+    link_context: null,
   };
 }
 
@@ -129,13 +135,24 @@ async function save(t: Tx, row: DraftRow, patch: Partial<Pick<DraftRow, "state_j
  * and compiles a validated proposal. Model failures are recorded on the draft
  * (answers are never lost) and surfaced as a retryable inline error.
  */
+/** Keeps the first useful link summary and accumulates fetched pages (deduplicated by URL). */
+function withLinks(state: DraftState, linkContext: string | null | undefined, fetched: FetchedSource[] | undefined): DraftState {
+  const sources = new Map((state.sources ?? []).map((x) => [x.url, x]));
+  for (const f of fetched ?? []) sources.set(f.url, f);
+  return {
+    ...state,
+    linkContext: state.linkContext || (linkContext?.trim() ? linkContext.trim().slice(0, 2000) : null),
+    sources: [...sources.values()].slice(0, 10),
+  };
+}
+
 async function advance(t: Tx, row: DraftRow): Promise<DraftRow> {
   let state: DraftState = { ...row.state_json };
   if (state.pending || row.status !== "collecting") return row;
   try {
     if (!state.interpretation) {
       const forced = state.startNow || state.answers.length >= MAX_QUESTIONS;
-      const { value } = await callModel(row.owner_id, "clarify", (m) =>
+      const { value, info: clarifyInfo } = await callModel(row.owner_id, "clarify", (m) =>
         m.clarifyCourse({
           topic: row.topic,
           answers: state.answers.map(({ field, question, answer }) => ({ field, question, answer })),
@@ -143,8 +160,10 @@ async function advance(t: Tx, row: DraftRow): Promise<DraftRow> {
           questionsAsked: state.answers.length,
           maxQuestions: MAX_QUESTIONS,
           startNow: forced,
+          linkContext: state.linkContext ?? null,
         }),
       );
+      state = withLinks(state, value.status === "ask" ? value.link_context : value.interpretation.link_context, clarifyInfo.sources);
       const repeat = value.status === "ask" && state.answers.some((a) => a.field === value.field);
       if (value.status === "ask" && !forced && !repeat) {
         state = { ...state, pending: { question: value.question, options: value.quick_replies, field: value.field, reasonCode: value.reason_code } };
@@ -168,9 +187,12 @@ async function advance(t: Tx, row: DraftRow): Promise<DraftRow> {
         successCriteria: interp.success_criteria,
         assumptions: interp.assumptions,
         adjustment: state.adjustment,
+        linkContext: state.linkContext ?? interp.link_context ?? null,
       }),
     );
     // Defense in depth: the adapter validated already; validate again before persisting.
+    state = withLinks(state, null, info.sources);
+    row = { ...row, state_json: state };
     const checked = validateCurriculum(curriculum);
     if (!checked.ok) throw new AppError("model_invalid_output", "The generated plan was not usable. Please retry.", true);
     return await save(t, row, { status: "ready", proposal_json: { curriculum: checked.value, interpretation: interp, modelInfo: info }, last_error: null });
@@ -299,12 +321,17 @@ export async function convertDraft(ownerId: string, draftId: string): Promise<{ 
     const [goal] = await t<{ id: string }[]>`
       insert into course_goal_versions (course_id, version, intent, goal_text, success_criteria_json, time_budget_minutes_weekly, baseline_json, depth, reason)
       values (${course.id}, 1, ${interp.intent}, ${interp.goal_text}, ${json(plan.success_criteria.length ? plan.success_criteria : interp.success_criteria)},
-              ${interp.time_budget_minutes_weekly ?? plan.suggested_minutes_weekly}, ${json({ text: interp.baseline, assumptions: interp.assumptions })}, ${interp.depth}, 'initial')
+              ${interp.time_budget_minutes_weekly ?? plan.suggested_minutes_weekly}, ${json({ text: interp.baseline, assumptions: interp.assumptions, link_context: row.state_json.linkContext ?? interp.link_context ?? null })}, ${interp.depth}, 'initial')
       returning id`;
     await t`update courses set active_goal_version_id = ${goal.id} where id = ${course.id}`;
     const ids = await insertConcepts(t, course.id, plan.concepts, 0, "initial");
     await t`insert into course_curriculum_versions (course_id, version, plan_json, reason, model_info_json)
       values (${course.id}, 1, ${json({ direction: plan.direction, required_slugs: plan.concepts.map((c) => c.slug), first_concept_slug: plan.first_concept_slug, cadence_note: plan.cadence_note, suggested_minutes_weekly: plan.suggested_minutes_weekly })}, 'initial', ${json(modelInfo)})`;
+    for (const src of row.state_json.sources ?? []) {
+      if (!/^https?:\/\//i.test(src.url)) continue;
+      await t`insert into source_references (course_id, title, url, retrieved_at, source_type)
+        values (${course.id}, ${(src.title ?? src.url).slice(0, 300)}, ${src.url.slice(0, 2000)}, ${src.retrievedAt ?? new Date().toISOString()}, 'learner_link')`;
+    }
     await t`insert into course_events (course_id, event_type, payload_json) values (${course.id}, 'course_created', ${json({ concepts: ids.size, intent: interp.intent })})`;
     await t`update course_drafts set status = 'converted', converted_course_id = ${course.id}, version = version + 1 where id = ${row.id}`;
     return { courseId: course.id, created: true };

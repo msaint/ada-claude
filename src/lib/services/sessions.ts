@@ -293,6 +293,7 @@ async function generateActivity(t: Tx, ownerId: string, course: CourseRow, conce
       misconceptions: misconceptions.map((r) => r.m),
       priorPrompts: prior.map((r) => r.p.slice(0, 300)).filter(Boolean),
       assistanceUsed: 0,
+      linkContext: goal.baseline_json?.link_context ?? null,
     }),
   );
   if (value.kind !== d.kind) throw new AppError("model_invalid_output", "Generated activity had the wrong type.", true);

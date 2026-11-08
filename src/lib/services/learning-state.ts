@@ -25,7 +25,7 @@ export type GoalRow = {
   goal_text: string;
   success_criteria_json: string[];
   time_budget_minutes_weekly: number | null;
-  baseline_json: { text?: string; assumptions?: string[] };
+  baseline_json: { text?: string; assumptions?: string[]; link_context?: string | null };
   depth: string | null;
   reason: string | null;
   created_at: Date;

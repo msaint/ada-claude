@@ -83,6 +83,7 @@ export async function reviseGoal(ownerId: string, courseId: string, input: { goa
       previousGoalText: goal.goal_text,
       request: input.reason ?? "Learner changed their goal",
       existing: concepts.map((c) => ({ slug: c.slug, title: c.title, status: c.display })),
+      linkContext: goal.baseline_json?.link_context ?? null,
     }),
   );
   const checked = validateExpansion(value, concepts.map((c) => c.slug), "revise");
@@ -124,6 +125,7 @@ export async function addBranch(ownerId: string, courseId: string, question: str
       goalText: goal.goal_text,
       request: question,
       existing: concepts.map((c) => ({ slug: c.slug, title: c.title, status: c.display })),
+      linkContext: goal.baseline_json?.link_context ?? null,
     }),
   );
   const checked = validateExpansion(value, concepts.map((c) => c.slug), "branch");

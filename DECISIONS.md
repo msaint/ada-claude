@@ -54,5 +54,12 @@ Migration `0002` enables RLS (no policies) on every table so a hosted Data API (
 - **Keeping progress:** sign-up upgrades the guest row in place, so everything is kept. Signing into an existing account reassigns everything the guest owns to that account and deletes the guest.
 - **Abuse and cleanup:** guest creation is the one unauthenticated mutation. It is rate-limited per client IP (stored only as a truncated SHA-256, `ADA_GUEST_CREATIONS_PER_HOUR`). Guests whose sessions have all expired are purged with their data, opportunistically on each new guest creation. A scheduled job would make this independent of traffic (P1).
 
+### D16. Reading links learners share (Claude's server-side web fetch)
+Learners often explain a goal with links: a job posting, a portfolio, a syllabus. During course setup (clarify, compile, branch), when the learner's text contains a URL that hasn't been summarized yet, the Anthropic transport declares the **server-side `web_fetch_20260209` tool**.
+- **Who fetches:** Anthropic fetches the page, so Ada's servers make no outbound requests (no SSRF surface). The tool can only open URLs already present in the conversation, it is limited to 3 fetches per call (`max_content_tokens` 12k), and paused server-tool turns are resumed.
+- **Output:** the model writes a ≤2,000-character `link_context` summary, which is stored on the draft and reused by later setup calls (no re-fetch). On conversion it goes into the goal's `baseline_json`, so lesson generation stays tailored, and each page **actually returned by the tool** is saved to `source_references` (`learner_link`). Model-invented URLs are never recorded.
+- **Routing:** OpenAI has no equivalent tool on this path. When both keys are set, calls with unread links go to Anthropic first. If only OpenAI is configured, the prompt tells the model to say it couldn't read the link and ask for the key points.
+- **Safety:** fetched content is treated as data, never instructions (system prompt). The setup screen shows "Ada read: …" with the real URLs.
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.
