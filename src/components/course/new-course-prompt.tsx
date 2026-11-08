@@ -45,7 +45,7 @@ export function NewCoursePrompt({ needsSession = false, guestAtLimit = false }: 
         submit();
       }}
     >
-      <div className="relative rounded-2xl border border-line-strong bg-paper shadow-sm focus-within:border-accent">
+      <div className="relative rounded-2xl border border-line-strong bg-paper shadow-sm focus-within:border-muted">
         <label htmlFor="topic" className="sr-only">
           What would you like to learn?
         </label>

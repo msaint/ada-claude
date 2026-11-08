@@ -122,7 +122,7 @@ export function ActivityView(props: {
                 if (!props.disabled) props.onSubmitShortcut();
               }
             }}
-            className="w-full rounded-xl border border-line-strong bg-paper px-4 py-3 leading-relaxed text-ink focus:border-accent focus:outline-none read-only:bg-surface"
+            className="w-full rounded-xl border border-line-strong bg-paper px-4 py-3 leading-relaxed text-ink focus:border-muted focus:outline-none read-only:bg-surface"
           />
         </div>
       )}

@@ -108,7 +108,7 @@ export function OutlineList({ outline }: { outline: OutlineView }) {
           Curious about something related?
         </label>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input id="branch" value={branch} maxLength={300} onChange={(e) => setBranch(e.target.value)} placeholder="e.g. wheel wear, what happens at the edge" className="min-h-11 flex-1 rounded-lg border border-line-strong px-3 focus:border-accent focus:outline-none" />
+          <input id="branch" value={branch} maxLength={300} onChange={(e) => setBranch(e.target.value)} placeholder="e.g. wheel wear, what happens at the edge" className="min-h-11 flex-1 rounded-lg border border-line-strong px-3 focus:border-muted focus:outline-none" />
           <Button type="submit" busy={busy} disabled={branch.trim().length < 2}>
             Add to this course
           </Button>

@@ -25,7 +25,7 @@ export function AuthForm({ initialMode = "signin", isGuest = false, next = "/app
     }
   }
 
-  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 text-ink placeholder:text-muted/70 focus:border-accent focus:outline-none";
+  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 text-ink placeholder:text-muted/70 focus:border-muted focus:outline-none";
   return (
     <form onSubmit={submit} className="space-y-4" aria-label={mode === "signin" ? "Sign in" : "Create account"}>
       <h1 className="text-lg font-medium">{mode === "signin" ? "Sign in" : isGuest ? "Save your progress" : "Create your account"}</h1>

@@ -49,7 +49,7 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
     }
   }
 
-  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 focus:border-accent focus:outline-none";
+  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 focus:border-muted focus:outline-none";
   return (
     <div className="space-y-10">
       <form onSubmit={(e) => { e.preventDefault(); save(); }} className="space-y-8">
