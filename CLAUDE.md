@@ -5,8 +5,9 @@ All development happens in the cloud. Nothing depends on a local machine. Where 
 ## Session environment (Claude Code cloud, environment "Ada")
 - The setup script starts a local throwaway Postgres (`postgres:postgres@localhost:5432`), runs `npm ci`, migrates `ada_dev`, and writes `.env.local` with `MOCK_MODEL=true`.
 - If Postgres is down (e.g. after the container idled), run: `service postgresql start`.
-- Model API keys are **not** in the sandbox. They are network secrets on the environment, which the proxy injects into requests to `api.openai.com` and `api.anthropic.com`. The SDKs still need a placeholder value to start, for example:
-  `OPENAI_API_KEY=placeholder ANTHROPIC_API_KEY=placeholder npm run smoke:model -- --provider anthropic "Black holes"`
+- The OpenAI key is **not** in the sandbox. It is a network secret on the environment, which the proxy injects into requests to `api.openai.com`. The SDK still needs a placeholder to start:
+  `OPENAI_API_KEY=placeholder npm run smoke:model -- --provider openai "Black holes"`
+- Claude environments don't accept a user Anthropic key for `api.anthropic.com`, so the Anthropic path is tested on a **Vercel preview deployment** (the key lives in Vercel → Preview env vars) or by the GitHub `Model smoke test` workflow if one is added later. Don't try to put an Anthropic key in the session.
 - Never put real secrets in the repo, in `.env.local`, or in the environment's setup script or plain variables.
 - Never connect to the production or staging Supabase databases from a session. Schema changes reach them only through the GitHub Actions `Migrate database` workflow.
 

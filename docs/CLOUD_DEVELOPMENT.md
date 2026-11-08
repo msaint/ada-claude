@@ -11,7 +11,8 @@ Goal: develop, test, deploy and migrate from any machine with a browser. No secr
 | Preview/staging runtime secrets | **Vercel → Environment Variables → Preview** (staging Supabase, same or separate model keys) | every branch/PR preview deployment |
 | Migration credentials | **GitHub → Settings → Environments → `production` / `staging` → secret `MIGRATION_DATABASE_URL`** | `Migrate database` workflow |
 | Databases | **Supabase**: two projects, `ada-prod` and `ada-staging` | Vercel + GitHub Actions only |
-| Model keys for Claude dev sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected by the proxy, never visible in the sandbox) | Claude sessions |
+| OpenAI key for Claude dev sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected by the proxy for `api.openai.com`, never visible in the sandbox) | Claude sessions |
+| Anthropic key for testing | **Vercel → Preview** env vars (Claude environments don't accept user keys for Anthropic's own API) | preview deployments |
 | Dev/test database for Claude sessions | Throwaway Postgres inside each session (setup script) | that session only |
 | Account passwords / 2FA | your password manager (cloud-synced) | you |
 
@@ -48,7 +49,8 @@ Mark the keys and URLs as **Sensitive** so they can't be read back from the dash
 ### 4. Claude Code cloud environment
 The "Ada" environment holds:
 - **Setup script**: local Postgres, `npm ci`, migrations, dev `.env.local`. No secrets.
-- **Network secrets**: OpenAI key for `api.openai.com`, Anthropic key for `api.anthropic.com`. Enter them only through the environment's settings card, never in chat or the repo.
+- **Network secret**: the OpenAI key for `api.openai.com` (already saved). Enter or rotate it only through the environment's settings, never in chat or the repo.
+- **No Anthropic key.** Claude environments don't accept user credentials for Anthropic's own API hosts. To exercise the Anthropic path, push a branch and use its Vercel preview: set `ADA_MODEL_PROVIDER=anthropic` and the Anthropic key in Vercel's Preview scope.
 
 Start a session at claude.ai/code from any machine, choose the `msaint/ada-claude` repo and the "Ada" environment, and work. Push a branch, and Vercel gives you a live preview URL on staging.
 

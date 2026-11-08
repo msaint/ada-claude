@@ -21,7 +21,7 @@ No local machine is involved. In GitHub, go to **Settings → Environments → N
 - **OpenAI:** platform.openai.com → API keys → create a project key. Add billing.
 - **Anthropic:** platform.claude.com → API Keys → create a key. Add billing.
 
-Optional: check each key from a Claude Code cloud session before deploying (the keys are stored as the environment's network secrets; see `CLOUD_DEVELOPMENT.md`):
+Optional: check the OpenAI key from a Claude Code cloud session (it's stored as the environment's network secret; see `CLOUD_DEVELOPMENT.md`). The Anthropic key can't be stored on a Claude environment; check it on a Vercel preview deployment instead (step 5 shows how to confirm which provider served each call). The second command below works only where an Anthropic key is available to the process:
 
 ```bash
 OPENAI_API_KEY=placeholder npm run smoke:model -- --provider openai "Black holes"
