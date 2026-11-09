@@ -33,7 +33,7 @@ ANTHROPIC_API_KEY=placeholder npm run smoke:model -- --provider anthropic "Black
 
 ## 4. Create the Vercel project
 
-1. vercel.com → **Add New → Project** → import `msaint/ada-claude`. If you deploy before merging, pick the branch under **Settings → Git**. The framework is detected as Next.js; keep the default build command.
+1. vercel.com → **Add New → Project** → import `msaint/ada-learning-platform`. If you deploy before merging, pick the branch under **Settings → Git**. The framework is detected as Next.js; keep the default build command.
 2. **Settings → Functions → Function Region**: choose the region closest to your Supabase region (e.g. Supabase `us-east-1` → Vercel `iad1`). Every request makes several database round trips.
 3. **Settings → Environment Variables** (Production, plus Preview if you want previews to work):
 
