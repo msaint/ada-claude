@@ -1,15 +1,16 @@
 "use client";
 
 import { ArrowUp } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { api, ApiError, newKey } from "@/lib/client/api";
+import { api, ApiError, ensureSession, newKey } from "@/lib/client/api";
 import { InlineError } from "@/components/ui/primitives";
 import type { CourseDraftView } from "@/lib/schemas/dto";
 
 const MAX = 500;
 
-export function NewCoursePrompt() {
+export function NewCoursePrompt({ needsSession = false, guestAtLimit = false }: { needsSession?: boolean; guestAtLimit?: boolean }) {
   const router = useRouter();
   const [topic, setTopic] = useState("");
   const [busy, setBusy] = useState(false);
@@ -23,10 +24,15 @@ export function NewCoursePrompt() {
     setBusy(true);
     setError(null);
     try {
+      // First-time visitors start as guests: no sign-up before the first course.
+      if (needsSession) await ensureSession();
       const { draft } = await api<{ draft: CourseDraftView }>("/course-drafts", { body: { topic: t, idempotencyKey: keyRef.current } });
       router.push(`/app/new?draft=${draft.id}`);
+      // A new guest session changes what the (persistent) shell should show.
+      if (needsSession) router.refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong.");
+      // account_required opens the account dialog (via the API client); don't also show an error.
+      if (!(e instanceof ApiError && e.code === "account_required")) setError(e instanceof ApiError ? e.message : "Something went wrong.");
       setBusy(false);
     }
   }
@@ -39,7 +45,7 @@ export function NewCoursePrompt() {
         submit();
       }}
     >
-      <div className="relative rounded-2xl border border-line-strong bg-paper shadow-sm focus-within:border-accent">
+      <div className="relative rounded-2xl border border-line-strong bg-paper shadow-sm focus-within:border-muted">
         <label htmlFor="topic" className="sr-only">
           What would you like to learn?
         </label>
@@ -75,6 +81,15 @@ export function NewCoursePrompt() {
       <p id="topic-help" className={`mt-2 min-h-5 text-center text-xs ${over ? "text-bad" : "text-muted"}`} aria-live="polite">
         {busy ? "Ada is thinking about your topic…" : over ? `Keep it under ${MAX} characters (${topic.length}).` : "Any topic. Ada builds the course."}
       </p>
+      {guestAtLimit && (
+        <p className="mt-1 text-center text-sm text-ink-soft">
+          Guests can try one course.{" "}
+          <Link href="/login?mode=signup&next=/app" className="font-medium text-accent-strong underline underline-offset-2">
+            Create a free account
+          </Link>{" "}
+          to start another and keep your progress.
+        </p>
+      )}
       {error && <InlineError message={error} onRetry={submit} />}
     </form>
   );

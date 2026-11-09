@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CourseListItem } from "@/lib/schemas/dto";
 import { api, ApiError } from "@/lib/client/api";
 import { Button, Dialog, InlineError } from "@/components/ui/primitives";
+import type { ShellUser } from "./app-shell";
 
 export function CourseSidebar({
   courses,
@@ -16,7 +17,7 @@ export function CourseSidebar({
   autoFocus,
 }: {
   courses: CourseListItem[];
-  user: { email: string; displayName: string | null };
+  user: ShellUser;
   onNavigate?: () => void;
   autoFocus?: boolean;
 }) {
@@ -57,23 +58,43 @@ export function CourseSidebar({
         )}
       </div>
       <div className="border-t border-line px-3 py-3">
-        <Link href="/app/review" onClick={onNavigate} className={clsx("flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm hover:bg-line/60", pathname === "/app/review" ? "text-ink" : "text-ink-soft")}>
-          <RotateCcw className="size-4" aria-hidden /> Review
-          {anyDue && <span className="ml-auto size-2 rounded-full bg-accent" aria-label="Reviews due" />}
-        </Link>
-        <Link href="/app/settings" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60">
-          <Settings className="size-4" aria-hidden /> <span className="truncate">{user.displayName || user.email}</span>
-        </Link>
-        <button
-          onClick={async () => {
-            await api("/auth/logout", { body: {} }).catch(() => {});
-            // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload after auth change is intentional
-            window.location.href = "/login";
-          }}
-          className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60"
-        >
-          <LogOut className="size-4" aria-hidden /> Sign out
-        </button>
+        {user && (
+          <Link href="/app/review" onClick={onNavigate} className={clsx("flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm hover:bg-line/60", pathname === "/app/review" ? "text-ink" : "text-ink-soft")}>
+            <RotateCcw className="size-4" aria-hidden /> Review
+            {anyDue && <span className="ml-auto size-2 rounded-full bg-accent" aria-label="Reviews due" />}
+          </Link>
+        )}
+        {user && !user.isGuest ? (
+          <>
+            <Link href="/app/settings" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60">
+              <Settings className="size-4" aria-hidden /> <span className="truncate">{user.displayName || user.email}</span>
+            </Link>
+            <button
+              onClick={async () => {
+                await api("/auth/logout", { body: {} }).catch(() => {});
+                // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload after auth change is intentional
+                window.location.href = "/app";
+              }}
+              className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60"
+            >
+              <LogOut className="size-4" aria-hidden /> Sign out
+            </button>
+          </>
+        ) : (
+          <>
+            {user?.isGuest && (
+              <Link href="/app/settings" onClick={onNavigate} className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60">
+                <Settings className="size-4" aria-hidden /> Guest settings
+              </Link>
+            )}
+            <Link href={`/login?mode=signup&next=${encodeURIComponent(pathname ?? "/app")}`} onClick={onNavigate} className="mt-1 flex min-h-11 items-center justify-center rounded-lg bg-accent px-3 text-sm font-medium text-white hover:bg-accent-strong">
+              Create free account
+            </Link>
+            <Link href={`/login?mode=signin&next=${encodeURIComponent(pathname ?? "/app")}`} onClick={onNavigate} className="flex min-h-11 items-center justify-center rounded-lg px-3 text-sm text-ink-soft hover:bg-line/60">
+              Sign in
+            </Link>
+          </>
+        )}
       </div>
     </nav>
   );

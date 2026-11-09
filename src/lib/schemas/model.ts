@@ -18,6 +18,8 @@ export const ClarifyAskSchema = z.object({
   quick_replies: z.array(shortText(60)).max(4).default([]),
   field: z.enum(DRAFT_FIELDS),
   reason_code: shortText(60),
+  /** Summary of pages the learner linked (filled when the model read them). */
+  link_context: z.string().trim().max(2000).nullable().default(null),
 });
 
 export const InterpretationSchema = z.object({
@@ -28,6 +30,8 @@ export const InterpretationSchema = z.object({
   time_budget_minutes_weekly: z.number().int().min(0).max(3000).nullable().default(null),
   success_criteria: z.array(shortText(200)).max(5).default([]),
   assumptions: z.array(shortText(200)).max(6).default([]),
+  /** Summary of pages the learner linked (job posting, portfolio, syllabus…), if read. */
+  link_context: z.string().trim().max(2000).nullable().default(null),
 });
 export type Interpretation = z.infer<typeof InterpretationSchema>;
 

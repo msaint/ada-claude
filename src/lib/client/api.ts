@@ -13,6 +13,20 @@ export class ApiError extends Error {
   }
 }
 
+/** Window event fired when the server says an account is needed (guest limits). */
+export const ACCOUNT_REQUIRED_EVENT = "ada:account-required";
+
+/** Only same-site relative paths are allowed as post-login destinations. */
+export function safeNext(next: string | null | undefined): string {
+  return next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/app";
+}
+
+/** Ensures a session exists (creating a guest one for first-time visitors). */
+export async function ensureSession() {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  await api("/auth/guest", { body: { timezone } });
+}
+
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
   let res: Response;
   try {
@@ -38,6 +52,9 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
     const err = (data as { error?: { code: string; message: string; retryable: boolean; details?: unknown } })?.error;
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload after auth change is intentional
     if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/auth")) window.location.href = "/login";
+    if (err?.code === "account_required" && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(ACCOUNT_REQUIRED_EVENT, { detail: err.message }));
+    }
     throw new ApiError(err?.code ?? "internal", err?.message ?? "Something went wrong.", err?.retryable ?? res.status >= 500, res.status, err?.details);
   }
   return data as T;

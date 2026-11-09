@@ -8,7 +8,7 @@ import { AppError, ModelError } from "@/lib/errors";
 import type { LearningModel } from "@/lib/ai/model-adapter";
 
 process.env.ADA_SILENT_LOGS = "true";
-const ctx = { topic: "Knots", answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: true };
+const ctx = { topic: "Knots", answers: [], askedFields: [], questionsAsked: 0, maxQuestions: 4, startNow: true, linkContext: null };
 
 function failing(err: Error): LearningModel {
   const m = new MockLearningModel();

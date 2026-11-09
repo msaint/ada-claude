@@ -25,7 +25,7 @@ export type GoalRow = {
   goal_text: string;
   success_criteria_json: string[];
   time_budget_minutes_weekly: number | null;
-  baseline_json: { text?: string; assumptions?: string[] };
+  baseline_json: { text?: string; assumptions?: string[]; link_context?: string | null };
   depth: string | null;
   reason: string | null;
   created_at: Date;
@@ -48,6 +48,7 @@ export type ConceptState = {
   display: DisplayStatus;
   inPlan: boolean;
   evidenceCount: number;
+  needsRecall: boolean;
   history: PlannerConcept["history"];
 };
 
@@ -88,7 +89,7 @@ export async function loadConceptStates(t: Db, courseId: string, now = new Date(
       position: number;
       origin: ConceptState["origin"];
       status: MasteryStatus | null;
-      details_json: { reason?: string } | null;
+      details_json: { reason?: string; needsRecall?: boolean } | null;
       due_at: Date | null;
       review_item_id: string | null;
     }[]
@@ -105,14 +106,15 @@ export async function loadConceptStates(t: Db, courseId: string, now = new Date(
   const hist = await t<{ concept_id: string; explained: boolean; predicted: boolean; review_activities: number }[]>`
     select concept_id,
       bool_or(kind = 'explanation') as explained,
-      bool_or(purpose = 'prediction') as predicted,
+      bool_or(purpose in ('prediction', 'placement')) as predicted,
       count(*) filter (where purpose = 'review')::int as review_activities
     from activities where course_id = ${courseId} group by concept_id`;
-  // `taught` excludes pre-teaching predictions so a lucky guess never replaces the post-teaching check.
-  const ev = await t<{ concept_id: string; n: number; taught: number; last_kind: ActivityKind | null }[]>`
+  // `taught` excludes pre-teaching predictions and placement probes, so neither replaces the post-teaching check.
+  const ev = await t<{ concept_id: string; n: number; taught: number; last_kind: ActivityKind | null; placed_out: boolean }[]>`
     select concept_id, count(*)::int as n,
-      count(*) filter (where purpose <> 'prediction')::int as taught,
-      (array_agg(activity_kind order by created_at desc) filter (where purpose <> 'prediction'))[1] as last_kind
+      count(*) filter (where purpose not in ('prediction', 'placement'))::int as taught,
+      coalesce(bool_or(purpose = 'placement' and result = 'correct' and coalesce(difficulty, 1) >= 2), false) as placed_out,
+      (array_agg(activity_kind order by created_at desc) filter (where purpose not in ('prediction', 'placement')))[1] as last_kind
     from assessment_evidence where course_id = ${courseId} and result <> 'exposure' group by concept_id`;
   const hmap = new Map(hist.map((h) => [h.concept_id, h]));
   const emap = new Map(ev.map((e) => [e.concept_id, e]));
@@ -132,6 +134,7 @@ export async function loadConceptStates(t: Db, courseId: string, now = new Date(
       prerequisiteIds: edges.filter((x) => x.to_concept_id === c.id).map((x) => x.from_concept_id),
       mastery,
       masteryReason: c.details_json?.reason ?? "",
+      needsRecall: !!c.details_json?.needsRecall && mastery !== "demonstrated",
       reviewDueAt: c.due_at,
       reviewItemId: c.review_item_id,
       display: displayStatus(mastery, c.due_at, now),
@@ -142,17 +145,50 @@ export async function loadConceptStates(t: Db, courseId: string, now = new Date(
         predicted: h?.predicted ?? false,
         assessments: e?.taught ?? 0,
         lastAssessKind: e?.last_kind ?? null,
+        placedOut: e?.placed_out ?? false,
         reviewActivities: h?.review_activities ?? 0,
       },
     };
   });
 }
 
-export function computeNextAction(concepts: ConceptState[], intent: "curiosity" | "goal", openSession: { kind: string } | null, now = new Date()): NextAction {
+export const MIN_CONCEPTS_FOR_PLACEMENT = 3;
+
+/** Whether a final mixed assessment was passed since the current plan (curriculum version) was made. */
+export async function loadFinalPassed(t: Db, courseId: string): Promise<boolean> {
+  const [r] = await t<{ passed: boolean }[]>`
+    select exists (
+      select 1 from course_events e
+      where e.course_id = ${courseId} and e.event_type = 'final_assessment' and (e.payload_json->>'passed')::boolean
+        and e.created_at >= coalesce((select max(created_at) from course_curriculum_versions where course_id = ${courseId}), '-infinity')
+    ) as passed`;
+  return r?.passed ?? false;
+}
+
+const OPEN_LABEL: Record<string, string> = { review: "Continue review", placement: "Continue placement", assessment: "Continue final check", lesson: "Continue lesson" };
+
+export function computeNextAction(
+  concepts: ConceptState[],
+  intent: "curiosity" | "goal",
+  openSession: { kind: string } | null,
+  extras: { finalPassed?: boolean } = {},
+  now = new Date(),
+): NextAction {
+  if (openSession) {
+    const kind = openSession.kind === "review" ? "review" : openSession.kind === "placement" ? "placement" : openSession.kind === "assessment" ? "assessment" : "learn";
+    return { kind, label: OPEN_LABEL[openSession.kind] ?? "Continue lesson" };
+  }
   const due = concepts.filter((c) => c.reviewDueAt && c.reviewDueAt <= now && c.mastery !== "not_assessed");
-  if (openSession) return { kind: openSession.kind === "review" ? "review" : "learn", label: openSession.kind === "review" ? "Continue review" : "Continue lesson" };
   if (due.length) return { kind: "review", label: due.length === 1 ? `Review: ${due[0].title}` : `Review ${due.length} concepts` };
-  const next = concepts.filter((c) => c.inPlan).find((c) => c.mastery !== "demonstrated") ?? concepts.find((c) => c.mastery !== "demonstrated");
+  const fresh = concepts.every((c) => !c.history.explained && !c.history.predicted && c.evidenceCount === 0 && c.mastery === "not_assessed");
+  if (intent === "goal" && fresh && concepts.filter((c) => c.inPlan).length >= MIN_CONCEPTS_FOR_PLACEMENT) {
+    return { kind: "placement", label: "Find your starting point" };
+  }
+  const plan = concepts.filter((c) => c.inPlan);
+  if (intent === "goal" && plan.length > 0 && plan.every((c) => c.mastery === "demonstrated") && !extras.finalPassed) {
+    return { kind: "assessment", label: "Take the final check" };
+  }
+  const next = plan.find((c) => c.mastery !== "demonstrated") ?? concepts.find((c) => c.mastery !== "demonstrated");
   if (next) return { kind: "learn", label: `Learn: ${next.title}` };
   return intent === "curiosity" ? { kind: "explore", label: "Explore a new branch" } : { kind: "learn", label: "Practice and stretch" };
 }

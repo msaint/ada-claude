@@ -13,15 +13,29 @@ import {
   HintResultSchema,
 } from "@/lib/schemas/model";
 import { validateCurriculum } from "@/lib/learning/curriculum";
-import type { LearningModel, ModelInfo, WithInfo } from "./model-adapter";
+import { containsUrl, type FetchedSource, type LearningModel, type ModelInfo, type WithInfo } from "./model-adapter";
 import * as P from "./prompts";
 
 /** Minimal transport so the adapter can be tested without network access. */
+export type TransportRequest = {
+  model: string;
+  system: string;
+  user: string;
+  maxTokens: number;
+  timeoutMs: number;
+  /** Let the provider fetch URLs present in the request (only providers with a server-side fetch tool honor it). */
+  webFetch?: boolean;
+  /** Reasoning effort for this operation (providers that support it). */
+  effort?: string;
+};
+
 export interface JsonTransport {
-  complete(req: { model: string; system: string; user: string; maxTokens: number; timeoutMs: number }): Promise<{
+  readonly supportsWebFetch?: boolean;
+  complete(req: TransportRequest): Promise<{
     text: string;
     inputTokens?: number;
     outputTokens?: number;
+    sources?: FetchedSource[];
   }>;
 }
 
@@ -33,7 +47,8 @@ export class OpenAITransport implements JsonTransport {
     // SDK retries are disabled; the adapter owns bounded retry with jitter.
     this.client = new OpenAI({ apiKey, baseURL, maxRetries: 0 });
   }
-  async complete(req: { model: string; system: string; user: string; maxTokens: number; timeoutMs: number }) {
+  // No server-side fetch tool on this path; `webFetch` is ignored and the model is told to ask instead.
+  async complete(req: TransportRequest) {
     const res = await this.client.chat.completions.create(
       {
         model: req.model,
@@ -54,8 +69,11 @@ export class OpenAITransport implements JsonTransport {
   }
 }
 
-type Op = "clarify" | "compile" | "expand" | "activity" | "evaluate" | "explain" | "hint";
-const BUDGET: Record<Op, number> = { clarify: 600, compile: 3000, expand: 2000, activity: 2200, evaluate: 1000, explain: 1200, hint: 300 };
+export type Op = "clarify" | "compile" | "expand" | "activity" | "evaluate" | "explain" | "hint";
+/** Learner-facing quick operations vs. operations that benefit from deeper reasoning. */
+export const FAST_OPS: Op[] = ["clarify", "activity", "hint", "explain"];
+export const DEEP_OPS: Op[] = ["compile", "expand", "evaluate"];
+const BUDGET: Record<Op, number> = { clarify: 1200, compile: 3000, expand: 2000, activity: 2200, evaluate: 1000, explain: 1200, hint: 300 };
 
 export function isTransient(err: unknown): boolean {
   if (err instanceof OpenAI.APIConnectionTimeoutError || err instanceof OpenAI.APIConnectionError) return true;
@@ -73,7 +91,7 @@ export class LLMLearningModel implements LearningModel {
   constructor(
     private transport: JsonTransport,
     private models: ModelIds,
-    private opts: { timeoutMs: number; maxTransientRetries?: number; retryBaseMs?: number; provider?: string } = { timeoutMs: 45000 },
+    private opts: { timeoutMs: number; maxTransientRetries?: number; retryBaseMs?: number; provider?: string; effortByOp?: Partial<Record<Op, string>> } = { timeoutMs: 45000 },
   ) {
     this.provider = opts.provider ?? "openai";
   }
@@ -89,7 +107,10 @@ export class LLMLearningModel implements LearningModel {
     user: string,
     schema: z.ZodType<T>,
     semantic?: (v: T) => { ok: true; value: T } | { ok: false; errors: string[] },
+    opts: { webFetch?: boolean } = {},
   ): Promise<WithInfo<T>> {
+    const webFetch = !!opts.webFetch && !!this.transport.supportsWebFetch;
+    const sources = new Map<string, FetchedSource>();
     const jsonSchema = JSON.stringify(z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }));
     const baseUser = `${user}\n\nJSON Schema for your output:\n${jsonSchema}`;
     const started = Date.now();
@@ -98,7 +119,8 @@ export class LLMLearningModel implements LearningModel {
     let prompt = baseUser;
     let lastErrors: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.callWithRetry(op, model, prompt);
+      const res = await this.callWithRetry(op, model, prompt, webFetch);
+      for (const s of res.sources ?? []) sources.set(s.url, s);
       inputTokens += res.inputTokens ?? 0;
       outputTokens += res.outputTokens ?? 0;
       const parsed = parseJsonObject(res.text);
@@ -111,7 +133,16 @@ export class LLMLearningModel implements LearningModel {
         } else {
           const s = semantic ? semantic(r.data) : { ok: true as const, value: r.data };
           if (s.ok) {
-            const info: ModelInfo = { provider: this.provider, model, operation: op, latencyMs: Date.now() - started, inputTokens, outputTokens, repaired: attempt > 0 };
+            const info: ModelInfo = {
+              provider: this.provider,
+              model,
+              operation: op,
+              latencyMs: Date.now() - started,
+              inputTokens,
+              outputTokens,
+              repaired: attempt > 0,
+              ...(sources.size ? { sources: [...sources.values()] } : {}),
+            };
             return { value: s.value, info };
           }
           lastErrors = s.errors;
@@ -123,12 +154,20 @@ export class LLMLearningModel implements LearningModel {
     throw new ModelError("model_invalid_output", `The model returned invalid ${op} output (${lastErrors[0] ?? "unknown"}).`, true);
   }
 
-  private async callWithRetry(op: Op, model: string, user: string) {
+  private async callWithRetry(op: Op, model: string, user: string, webFetch = false) {
     const max = this.opts.maxTransientRetries ?? 2;
     const base = this.opts.retryBaseMs ?? 400;
     for (let i = 0; ; i++) {
       try {
-        return await this.transport.complete({ model, system: P.SYSTEM, user, maxTokens: BUDGET[op], timeoutMs: this.opts.timeoutMs });
+        return await this.transport.complete({
+          model,
+          system: P.SYSTEM,
+          user: webFetch ? `${user}\n\n${P.WEB_FETCH_NOTE}` : user,
+          maxTokens: BUDGET[op],
+          timeoutMs: this.opts.timeoutMs,
+          webFetch,
+          effort: this.opts.effortByOp?.[op],
+        });
       } catch (err) {
         const transient = isTransient(err);
         log.warn("model_call_failed", { op, attempt: i, transient, error: (err as Error)?.message });
@@ -142,16 +181,26 @@ export class LLMLearningModel implements LearningModel {
   }
 
   clarifyCourse(input: Parameters<LearningModel["clarifyCourse"]>[0]) {
-    return this.run("clarify", this.models.clarify, P.clarifyPrompt(input), ClarificationResultSchema);
+    const webFetch = !input.linkContext && containsUrl(input.topic, ...input.answers.map((a) => a.answer));
+    return this.run("clarify", this.models.clarify, P.clarifyPrompt(input), ClarificationResultSchema, undefined, { webFetch });
   }
   compileCurriculum(input: Parameters<LearningModel["compileCurriculum"]>[0]) {
-    return this.run("compile", this.models.compile, P.compilePrompt(input), CurriculumProposalSchema, (v) => {
-      const r = validateCurriculum(v);
-      return r.ok ? { ok: true, value: r.value } : r;
-    });
+    const webFetch = !input.linkContext && containsUrl(input.topic, input.goalText, input.baseline, input.adjustment);
+    return this.run(
+      "compile",
+      this.models.compile,
+      P.compilePrompt(input),
+      CurriculumProposalSchema,
+      (v) => {
+        const r = validateCurriculum(v);
+        return r.ok ? { ok: true, value: r.value } : r;
+      },
+      { webFetch },
+    );
   }
   expandCurriculum(input: Parameters<LearningModel["expandCurriculum"]>[0]) {
-    return this.run("expand", this.models.compile, P.expandPrompt(input), CurriculumExpansionSchema);
+    const webFetch = containsUrl(input.request);
+    return this.run("expand", this.models.compile, P.expandPrompt(input), CurriculumExpansionSchema, undefined, { webFetch });
   }
   generateActivity(input: Parameters<LearningModel["generateActivity"]>[0]) {
     return this.run("activity", this.models.tutor, P.activityPrompt(input), ActivityGenSchema, (v) =>

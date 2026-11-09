@@ -104,11 +104,11 @@ export function CourseHeaderBar({ header }: { header: CourseHeader }) {
           </fieldset>
           <div>
             <label htmlFor="goal-text" className="mb-1 block text-sm font-medium">{intent === "goal" ? "What do you want to be able to do?" : "What do you want to understand?"}</label>
-            <textarea id="goal-text" rows={3} value={goalText} maxLength={600} onChange={(e) => setGoalText(e.target.value)} className="w-full rounded-lg border border-line-strong px-3 py-2 focus:border-accent focus:outline-none" />
+            <textarea id="goal-text" rows={3} value={goalText} maxLength={600} onChange={(e) => setGoalText(e.target.value)} className="w-full rounded-lg border border-line-strong px-3 py-2 focus:border-muted focus:outline-none" />
           </div>
           <div>
             <label htmlFor="goal-reason" className="mb-1 block text-sm font-medium">Why the change? <span className="font-normal text-muted">(optional)</span></label>
-            <input id="goal-reason" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} className="min-h-11 w-full rounded-lg border border-line-strong px-3 focus:border-accent focus:outline-none" />
+            <input id="goal-reason" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} className="min-h-11 w-full rounded-lg border border-line-strong px-3 focus:border-muted focus:outline-none" />
           </div>
           {header.goalHistory.length > 1 && (
             <details className="text-sm text-muted">

@@ -12,6 +12,8 @@ Goal: develop, test, deploy and migrate from any machine with a browser. No secr
 | Migration credentials | **GitHub → Settings → Environments → `production` / `staging` → secret `MIGRATION_DATABASE_URL`** | `Migrate database` workflow |
 | Databases | **Supabase**: two projects, `ada-prod` and `ada-staging` | Vercel + GitHub Actions only |
 | OpenAI key for Claude dev sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected by the proxy for `api.openai.com`, never visible in the sandbox) | Claude sessions |
+| Vercel access token for Claude sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected for `api.vercel.com`; the CLI gets a placeholder `--token`) | Claude sessions (Vercel CLI/API) |
+| Vercel MCP (optional) | **claude.ai → Customize → Connectors**, custom connector `https://mcp.vercel.com` | Claude sessions |
 | Anthropic key for testing | **Vercel → Preview** env vars (Claude environments don't accept user keys for Anthropic's own API) | preview deployments |
 | Dev/test database for Claude sessions | Throwaway Postgres inside each session (setup script) | that session only |
 | Account passwords / 2FA | your password manager (cloud-synced) | you |

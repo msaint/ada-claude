@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
 import type { CourseListItem } from "@/lib/schemas/dto";
 import { DevModelBanner } from "@/components/ui/primitives";
 import { CourseSidebar } from "./course-sidebar";
+import { AccountRequiredDialog, GuestBanner } from "@/components/auth/guest";
+
+export type ShellUser = { email: string | null; displayName: string | null; isGuest: boolean } | null;
 
 export function AppShell({
   courses,
@@ -14,7 +17,7 @@ export function AppShell({
   children,
 }: {
   courses: CourseListItem[];
-  user: { email: string; displayName: string | null };
+  user: ShellUser;
   devModel: boolean;
   children: React.ReactNode;
 }) {
@@ -48,6 +51,7 @@ export function AppShell({
         )}
         <div className="flex min-w-0 flex-1 flex-col">
           {devModel && <DevModelBanner />}
+          {user?.isGuest && <GuestBanner />}
           <header className="flex h-14 items-center gap-2 border-b border-line px-3 md:hidden">
             <button
               aria-label="Open menu"
@@ -65,6 +69,7 @@ export function AppShell({
           </main>
         </div>
       </div>
+      <AccountRequiredDialog />
     </div>
   );
 }

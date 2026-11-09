@@ -14,6 +14,7 @@ import * as goals from "@/app/api/v1/courses/[id]/goals/route";
 import * as branches from "@/app/api/v1/courses/[id]/branches/route";
 import * as courseById from "@/app/api/v1/courses/[id]/route";
 import * as due from "@/app/api/v1/reviews/due/route";
+import * as reveal from "@/app/api/v1/activities/[id]/reveal/route";
 import { closeDb, db } from "@/lib/db/client";
 import type { SessionView } from "@/lib/schemas/dto";
 
@@ -144,12 +145,24 @@ describe("learning loop", () => {
     const { courseId } = await createCourseViaApi(user, "I want to learn Python to automate spreadsheet tasks", ["None yet", "1 hour"]);
     let s = await startSession(user, courseId);
     const conceptTitle = s.activity!.conceptTitle;
-    // prediction, teach, check (d1), apply (d2 free response) → 2 independent successes incl. d≥2
-    for (let i = 0; i < 4; i++) s = await step(user, s);
-    const o = await call(outline.GET, { user, params: { id: courseId } });
-    const c = o.json.outline.concepts.find((x: { title: string }) => x.title === conceptTitle);
+    const statusOf = async () =>
+      (await call(outline.GET, { user, params: { id: courseId } })).json.outline.concepts.find((x: { title: string }) => x.title === conceptTitle);
+    // predict → teach → check → apply → devil's advocate (all "prompted": back-to-back on one concept),
+    // then other work, then an interleaved unprompted recall check completes the evidence.
+    const path: string[] = [];
+    for (let i = 0; i < 12 && (await statusOf()).status !== "demonstrated"; i++) {
+      if (s.status === "completed" || !s.activity) s = await startSession(user, courseId, { kind: "lesson" });
+      path.push(`${s.activity!.purpose}${s.activity!.conceptTitle === conceptTitle ? "" : "*"}`);
+      s = await step(user, s);
+      if (i === 4) expect((await statusOf()).status).toBe("developing"); // ready except for unprompted recall
+    }
+    expect(path.slice(0, 5)).toEqual(["prediction", "teach", "check", "apply", "defend"]);
+    expect(path).toContain("recall");
+    expect(path.indexOf("recall")).toBeGreaterThan(path.findIndex((p) => p.endsWith("*"))); // other work came first
+    const c = await statusOf();
     expect(c.status).toBe("demonstrated");
-    expect(c.evidence.length).toBeGreaterThanOrEqual(3);
+    expect(c.evidence.length).toBeGreaterThanOrEqual(4);
+    if (s.status !== "completed") await call(pause.POST, { user, params: { id: s.id } });
 
     const p = await call(progress.GET, { user, params: { id: courseId } });
     expect(p.json.progress.canDo.map((x: { title: string }) => x.title)).toContain(conceptTitle);
@@ -165,8 +178,7 @@ describe("learning loop", () => {
     expect(dueNow.length).toBeGreaterThan(0);
     expect(dueNow[0].courseId).toBe(courseId);
 
-    // finish the open lesson, then a review session starts from the due item with a fresh variant
-    await call(pause.POST, { user, params: { id: s.id } });
+    // a review session starts from the due item with a fresh variant
     const rv = await startSession(user, courseId, { kind: "review" });
     expect(rv.kind).toBe("review");
     expect(rv.activity!.purpose).toBe("review");
@@ -182,16 +194,27 @@ describe("learning loop", () => {
     expect(after[0].due_at.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it("incorrect answers trigger remediation and don't count as success", async () => {
+  it("a wrong answer is not revealed: a narrower probe comes first, a direct explanation only after a second miss", async () => {
     const user = await makeUser();
     const { courseId } = await createCourseViaApi(user, "Black holes", ["Just curious", "A deeper exploration"]);
     let s = await startSession(user, courseId);
     s = await step(user, s); // prediction
     s = await step(user, s); // teach
     expect(s.activity!.purpose).toBe("check");
-    s = await step(user, s, { wrong: true });
-    expect(s.activity!.kind).toBe("explanation");
-    expect(s.activity!.purpose).toBe("remediate");
+    const checkId = s.activity!.id;
+    const correctId = await correctChoice(checkId);
+    const miss = await call(attempts.POST, { user, params: { id: checkId }, body: { idempotencyKey: key(), response: { choiceId: (s.activity as { choices: { id: string }[] }).choices.find((c) => c.id !== correctId)!.id } } });
+    expect(miss.json.session.feedback).toMatchObject({ result: "incorrect", withheld: true });
+    expect(JSON.stringify(miss.json.session.feedback)).not.toMatch(/correctChoiceId|rationale/);
+    // "Show me the answer" reveals it on request
+    const rev = await call(reveal.POST, { user, params: { id: checkId } });
+    expect(rev.json.session.feedback).toMatchObject({ correctChoiceId: correctId, revealed: true, withheld: false });
+    s = (await call(next.POST, { user, params: { id: s.id }, body: { fromActivityId: checkId } })).json.session;
+    expect(s.activity!).toMatchObject({ kind: "multiple_choice", purpose: "probe" });
+    s = await step(user, s, { wrong: true }); // second miss
+    expect(s.activity!).toMatchObject({ kind: "explanation", purpose: "remediate" });
+    s = await step(user, s);
+    expect(s.activity!).toMatchObject({ purpose: "check" }); // immediate re-test from a different angle
   });
 
   it("free response is graded against a rubric and stored with evaluator metadata", async () => {

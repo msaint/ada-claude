@@ -18,7 +18,10 @@ export const MIN_EVIDENCE_FOR_ESTIMATE = 3;
  * the *current* goal plus prerequisite bottlenecks. Never a percentage; an
  * estimate, not a qualification.
  */
-export function estimateReadiness(required: ReadinessConcept[]): { band: ReadinessBand; basis: string; evidenceCount: number } {
+export function estimateReadiness(
+  required: ReadinessConcept[],
+  opts: { finalAssessmentPassed?: boolean } = {},
+): { band: ReadinessBand; basis: string; evidenceCount: number } {
   const evidenceCount = required.reduce((n, c) => n + c.evidenceCount, 0);
   if (required.length === 0 || evidenceCount < MIN_EVIDENCE_FOR_ESTIMATE) {
     return { band: "unknown", basis: "Not enough evidence yet. Answer a few questions and Ada will estimate readiness.", evidenceCount };
@@ -34,7 +37,9 @@ export function estimateReadiness(required: ReadinessConcept[]): { band: Readine
   );
 
   let band: ReadinessBand;
-  if (ratio === 1) band = "demonstrated";
+  // Every concept shown one at a time isn't the same as holding them together:
+  // "demonstrated" also needs a passed final mixed check.
+  if (ratio === 1) band = opts.finalAssessmentPassed ? "demonstrated" : "approaching";
   else if (ratio >= 0.6 && bottlenecks.length <= 1) band = "approaching";
   else if (ratio > 0 || pool.some((c) => c.status === "developing")) band = "developing";
   else band = "early";
@@ -45,6 +50,8 @@ export function estimateReadiness(required: ReadinessConcept[]): { band: Readine
       ".",
   ];
   if (bottlenecks.length) parts.push(`Prerequisite still to show: ${bottlenecks.slice(0, 3).map((c) => c.title).join(", ")}.`);
+  if (ratio === 1 && !opts.finalAssessmentPassed) parts.push("Take the final check, a mixed set of questions across the whole course, to confirm readiness.");
+  if (ratio === 1 && opts.finalAssessmentPassed) parts.push("You passed the final check.");
   parts.push("Assisted answers and lesson views don't count toward this estimate.");
   return { band, basis: parts.join(" "), evidenceCount };
 }

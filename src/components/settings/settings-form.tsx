@@ -15,6 +15,7 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
   const [delOpen, setDelOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
   const zones = supportedZones();
+  const confirmWord = p.isGuest ? "delete" : (p.email ?? "");
 
   async function save() {
     setBusy(true);
@@ -41,20 +42,27 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
     try {
       await api("/account", { method: "DELETE", body: { confirmEmail: confirm } });
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full reload after auth change is intentional
-      window.location.href = "/login";
+      window.location.href = "/app";
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't delete the account.");
       setBusy(false);
     }
   }
 
-  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 focus:border-accent focus:outline-none";
+  const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 focus:border-muted focus:outline-none";
   return (
     <div className="space-y-10">
       <form onSubmit={(e) => { e.preventDefault(); save(); }} className="space-y-8">
         <section className="space-y-4">
           <h2 className="font-semibold">Profile</h2>
-          <p className="text-sm text-muted">Signed in as {p.email}</p>
+          {p.isGuest ? (
+            <p className="text-sm text-ink-soft">
+              You&apos;re using Ada as a guest. Your progress is kept on this device for 14 days.{" "}
+              <a href="/login?mode=signup&next=/app/settings" className="font-medium text-accent-strong underline underline-offset-2">Create a free account</a> to save it.
+            </p>
+          ) : (
+            <p className="text-sm text-muted">Signed in as {p.email}</p>
+          )}
           <div>
             <label htmlFor="name" className="mb-1 block text-sm">Display name</label>
             <input id="name" value={p.displayName ?? ""} maxLength={80} onChange={(e) => setP({ ...p, displayName: e.target.value })} className={input} />
@@ -116,22 +124,22 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
             Export my data
           </a>
           <Button variant="secondary" onClick={() => { setError(null); setDelOpen(true); }} className="text-bad">
-            Delete account
+            {p.isGuest ? "Delete guest data" : "Delete account"}
           </Button>
         </div>
       </section>
 
-      <Dialog open={delOpen} onClose={() => setDelOpen(false)} title="Delete your account?">
+      <Dialog open={delOpen} onClose={() => setDelOpen(false)} title={p.isGuest ? "Delete your guest data?" : "Delete your account?"}>
         <form onSubmit={(e) => { e.preventDefault(); deleteAccount(); }} className="space-y-4">
           <p className="text-sm text-ink-soft">This permanently deletes your account, all courses, answers, evidence and reviews. It can&apos;t be undone.</p>
           <div>
-            <label htmlFor="confirm-email" className="mb-1 block text-sm">Type <strong>{p.email}</strong> to confirm</label>
+            <label htmlFor="confirm-email" className="mb-1 block text-sm">Type <strong>{confirmWord}</strong> to confirm</label>
             <input id="confirm-email" autoFocus value={confirm} onChange={(e) => setConfirm(e.target.value)} className={input} autoComplete="off" />
           </div>
           {error && <InlineError message={error} />}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="quiet" onClick={() => setDelOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="danger" busy={busy} disabled={confirm.trim().toLowerCase() !== p.email.toLowerCase()}>Delete account</Button>
+            <Button type="submit" variant="danger" busy={busy} disabled={confirm.trim().toLowerCase() !== confirmWord.toLowerCase()}>Delete account</Button>
           </div>
         </form>
       </Dialog>

@@ -29,8 +29,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-:focus-visible {
-  outline: 2px solid var(--color-accent);
+/*
+ * Focus styles. Text fields and elements Ada focuses programmatically
+ * (headings/regions with tabindex="-1", for screen readers) get no ring:
+ * the caret and a subtle neutral border are enough. Interactive controls
+ * keep a thin ring for *keyboard* navigation only (:focus-visible doesn't
+ * show it on mouse clicks), so keyboard users can see where they are.
+ */
+:focus {
+  outline: none;
+}
+:where(a, button, summary, [role="menuitem"], input[type="radio"], input[type="checkbox"]):focus-visible {
+  outline: 1.5px solid var(--color-muted);
   outline-offset: 2px;
   border-radius: 6px;
 }

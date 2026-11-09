@@ -79,10 +79,23 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 md:py-16">
       <p className="mb-1 text-sm text-muted">New course</p>
-      <p className="mb-8 text-xl font-medium text-ink">{draft.topic}</p>
+      <p className={`${draft.sourcesRead.length ? "mb-3" : "mb-8"} text-xl font-medium break-words text-ink`}>{draft.topic}</p>
+      {draft.sourcesRead.length > 0 && (
+        <p className="mb-8 text-sm text-muted">
+          Ada read:{" "}
+          {draft.sourcesRead.map((s, i) => (
+            <span key={s.url}>
+              {i > 0 && " · "}
+              <a href={s.url} target="_blank" rel="noopener noreferrer nofollow" className="text-ink-soft underline underline-offset-2 hover:text-ink">
+                {s.title?.trim() || hostOf(s.url)}
+              </a>
+            </span>
+          ))}
+        </p>
+      )}
 
       {learnerTurns.length > 0 && (
-        <ol aria-label="Your answers so far" className="mb-8 space-y-2 border-l-2 border-line pl-4 text-sm">
+        <ol aria-label="Your answers so far" className="mb-8 space-y-2 border-l-2 border-line pl-4 text-sm break-words">
           {learnerTurns.map((t, i) => (
             <li key={i} className={t.role === "ada" ? "text-muted" : "text-ink-soft"}>
               {t.role === "ada" ? t.text : <span className="font-medium text-ink">{t.text}</span>}
@@ -127,7 +140,7 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
               maxLength={1000}
               onChange={(e) => setText(e.target.value)}
               placeholder="Or answer in your own words"
-              className="min-h-12 w-full rounded-xl border border-line-strong bg-paper px-4 pr-14 text-ink placeholder:text-muted/70 focus:border-accent focus:outline-none"
+              className="min-h-12 w-full rounded-xl border border-line-strong bg-paper px-4 pr-14 text-ink placeholder:text-muted/70 focus:border-muted focus:outline-none"
             />
             <button type="submit" aria-label="Send answer" disabled={!text.trim() || !!pending} className="absolute top-1/2 right-1.5 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-lg bg-accent text-white disabled:opacity-30">
               <ArrowUp className="size-4" aria-hidden />
@@ -195,7 +208,7 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
               <label htmlFor="adjust" className="text-sm font-medium">
                 What should change?
               </label>
-              <input id="adjust" autoFocus value={adjustment} maxLength={500} onChange={(e) => setAdjustment(e.target.value)} placeholder="e.g. more about the history, skip the basics" className="min-h-11 w-full rounded-lg border border-line-strong px-3 focus:border-accent focus:outline-none" />
+              <input id="adjust" autoFocus value={adjustment} maxLength={500} onChange={(e) => setAdjustment(e.target.value)} placeholder="e.g. more about the history, skip the basics" className="min-h-11 w-full rounded-lg border border-line-strong px-3 focus:border-muted focus:outline-none" />
               <div className="flex gap-2">
                 <Button type="submit" variant="primary" disabled={!adjustment.trim()}>Update plan</Button>
                 <Button type="button" variant="quiet" onClick={() => setAdjusting(false)}>Cancel</Button>
@@ -226,4 +239,12 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
       )}
     </div>
   );
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "link";
+  }
 }

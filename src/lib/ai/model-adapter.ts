@@ -10,7 +10,25 @@ import type {
 } from "@/lib/schemas/model";
 import type { ActivityKind, Purpose } from "@/lib/learning/next-action";
 
-export type ModelInfo = { provider: string; model: string; operation: string; latencyMs: number; inputTokens?: number; outputTokens?: number; repaired?: boolean };
+/** A page the provider actually fetched (never model-invented). */
+export type FetchedSource = { url: string; title: string | null; retrievedAt: string | null };
+
+export type ModelInfo = {
+  provider: string;
+  model: string;
+  operation: string;
+  latencyMs: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  repaired?: boolean;
+  sources?: FetchedSource[];
+};
+
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/i;
+/** True when learner-provided text contains a link worth reading. */
+export function containsUrl(...texts: (string | null | undefined)[]): boolean {
+  return texts.some((t) => !!t && URL_RE.test(t));
+}
 export type WithInfo<T> = { value: T; info: ModelInfo };
 
 export type CourseDraftContext = {
@@ -20,6 +38,8 @@ export type CourseDraftContext = {
   questionsAsked: number;
   maxQuestions: number;
   startNow: boolean;
+  /** Summary of linked pages captured earlier in this draft; when present, links aren't re-fetched. */
+  linkContext: string | null;
 };
 
 export type CurriculumContext = {
@@ -32,6 +52,7 @@ export type CurriculumContext = {
   successCriteria: string[];
   assumptions: string[];
   adjustment?: string | null;
+  linkContext?: string | null;
 };
 
 export type ExpansionContext = {
@@ -42,6 +63,7 @@ export type ExpansionContext = {
   previousGoalText?: string;
   request: string; // branch question or revision reason
   existing: { slug: string; title: string; status: string }[];
+  linkContext?: string | null;
 };
 
 export type ConceptBrief = { slug: string; title: string; description: string; assessmentCriteria: string[]; prerequisites: string[] };
@@ -60,6 +82,15 @@ export type ActivityContext = {
   misconceptions: string[];
   priorPrompts: string[];
   assistanceUsed: number;
+  linkContext?: string | null;
+  /** Rotating question form (predict, explain why, find the flaw, apply, connect) for variety. */
+  questionForm?: string | null;
+  /** For probe/defend: the learner's previous answer on this concept. */
+  followUp?: { promptMarkdown: string; learnerAnswer: string; answerKey?: string | null; misconception?: string | null } | null;
+  /** For the integrative final question: every concept the course covers. */
+  courseConcepts?: string[];
+  /** The learner asked for harder (+1) or easier (-1) questions this session. */
+  difficultyPreference?: number;
 };
 
 export type EvaluationContext = {
@@ -69,6 +100,8 @@ export type EvaluationContext = {
   rubric: { criterion: string; importance: number }[];
   idealAnswer: string;
   response: string;
+  /** Socratic mode: feedback must point at the gap without stating the answer. */
+  withholdAnswer?: boolean;
 };
 
 export type ExplainContext = {

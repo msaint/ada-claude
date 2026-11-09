@@ -98,7 +98,10 @@ describe("readiness", () => {
   it("bands by coverage of core concepts, never a percentage", () => {
     expect(estimateReadiness([c("a", "developing"), c("b", "not_assessed", 1)]).band).toBe("developing");
     expect(estimateReadiness([c("a", "demonstrated"), c("b", "demonstrated"), c("c", "developing")]).band).toBe("approaching");
-    const all = estimateReadiness([c("a", "demonstrated"), c("b", "demonstrated")]);
+    const allShown = [c("a", "demonstrated"), c("b", "demonstrated")];
+    expect(estimateReadiness(allShown).band).toBe("approaching");
+    expect(estimateReadiness(allShown).basis).toMatch(/final check/);
+    const all = estimateReadiness(allShown, { finalAssessmentPassed: true });
     expect(all.band).toBe("demonstrated");
     expect(all.basis).not.toMatch(/%/);
   });
@@ -177,11 +180,15 @@ describe("next-action planner", () => {
     const d = chooseNext({ ...base, concepts: [pc("c2", { prerequisiteIds: ["c1"], position: 0 }), pc("c1", { position: 1 })] });
     expect(d).toMatchObject({ conceptId: "c1" });
   });
-  it("remediates after a miss, then retries", () => {
-    const steps = [{ conceptId: "c1", kind: "multiple_choice" as const, purpose: "check" as const, result: "incorrect" as const }];
-    expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: steps })).toMatchObject({ kind: "explanation", purpose: "remediate" });
-    const steps2 = [...steps, { conceptId: "c1", kind: "explanation" as const, purpose: "remediate" as const, result: null }];
+  it("probes after a first miss, explains after a second, then re-tests", () => {
+    const miss = { conceptId: "c1", kind: "multiple_choice" as const, purpose: "check" as const, result: "incorrect" as const };
+    expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: [miss] })).toMatchObject({ kind: "multiple_choice", purpose: "probe", difficulty: 1 });
+    const probeMiss = { conceptId: "c1", kind: "multiple_choice" as const, purpose: "probe" as const, result: "incorrect" as const };
+    expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: [miss, probeMiss] })).toMatchObject({ kind: "explanation", purpose: "remediate" });
+    const steps2 = [miss, probeMiss, { conceptId: "c1", kind: "explanation" as const, purpose: "remediate" as const, result: null }];
     expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: steps2 })).toMatchObject({ kind: "multiple_choice", purpose: "check", difficulty: 2 });
+    const probeHit = { conceptId: "c1", kind: "multiple_choice" as const, purpose: "probe" as const, result: "correct" as const };
+    expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: [miss, probeHit] })).toMatchObject({ kind: "free_response", purpose: "check", difficulty: 2 });
   });
   it("review sessions use due items with alternating fresh variants and stop when done", () => {
     const concepts = [pc("c1", { status: "demonstrated", history: { explained: true, predicted: true, assessments: 3, lastAssessKind: "free_response", reviewActivities: 1 } })];
@@ -191,7 +198,7 @@ describe("next-action planner", () => {
     expect(done.action).toBe("complete");
   });
   it("lessons are bounded and curiosity sessions end with a reflection", () => {
-    const steps = Array.from({ length: 5 }, () => ({ conceptId: "c1", kind: "multiple_choice" as const, purpose: "check" as const, result: "correct" as const }));
+    const steps = Array.from({ length: 7 }, () => ({ conceptId: "c1", kind: "multiple_choice" as const, purpose: "check" as const, result: "correct" as const }));
     expect(chooseNext({ ...base, intent: "curiosity", concepts: [pc("c1"), pc("c2")], sessionSteps: steps })).toMatchObject({ kind: "reflection" });
     expect(chooseNext({ ...base, concepts: [pc("c1")], sessionSteps: [...steps, steps[0]] }).action).toBe("complete");
   });

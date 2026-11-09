@@ -10,6 +10,7 @@ export const SignUpBody = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").max(200),
   timezone: z.string().max(64).optional(),
 });
+export const GuestBody = z.object({ timezone: z.string().max(64).optional() });
 export const SignInBody = z.object({ email: z.string().trim().max(254), password: z.string().max(200) });
 
 export const CreateDraftBody = z.object({
@@ -49,10 +50,11 @@ export const ReviseGoalBody = z.object({
 export const BranchBody = z.object({ question: z.string().trim().min(2).max(300) });
 
 export const StartSessionBody = z.object({
-  kind: z.enum(["lesson", "review"]).optional(),
+  kind: z.enum(["lesson", "review", "placement", "assessment"]).optional(),
   focusConceptId: z.string().uuid().optional(),
 });
 
+export const DifficultyBody = z.object({ offset: z.union([z.literal(-1), z.literal(0), z.literal(1)]) });
 export const NextBody = z.object({ fromActivityId: z.string().uuid().nullable() });
 
 export const DraftInputBody = z.object({

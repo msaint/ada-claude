@@ -52,7 +52,7 @@ Optional variables, with defaults:
 |---|---|
 | `ADA_MODEL_FALLBACK` | `true` (use the other provider on timeouts/outages) |
 | `ADA_ANTHROPIC_MODEL_CLARIFY` / `_COMPILE` / `_TUTOR` / `_EVALUATE` | `claude-opus-5-5` |
-| `ADA_ANTHROPIC_EFFORT` | model default |
+| `ADA_ANTHROPIC_EFFORT_FAST` / `_DEEP` | `low` for questions, hints, explanations / `medium` for planning and grading |
 | `ADA_MODEL_CLARIFY` / `_COMPILE` / `_TUTOR` / `_EVALUATE` | `gpt-4.1-mini` / `gpt-4.1` / `gpt-4.1-mini` / `gpt-4.1-mini` |
 | `ADA_MODEL_CALLS_PER_MINUTE` / `_PER_DAY` | `20` / `400` per user |
 | `DB_POOL_MAX` | `3` per function instance |
