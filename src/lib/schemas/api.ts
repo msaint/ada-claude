@@ -84,4 +84,11 @@ export const PreferencesBody = z.object({
   quietHours: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) }).optional(),
 });
 
+export const PasswordResetRequestBody = z.object({ email: z.string().trim().max(254) });
+export const PasswordResetConfirmBody = z.object({
+  token: z.string().min(20).max(200),
+  password: z.string().min(8, "Password must be at least 8 characters").max(200),
+});
+export const EmailTokenBody = z.object({ token: z.string().min(20).max(200) });
+
 export const DeleteAccountBody = z.object({ confirmEmail: z.string().trim().max(254) });

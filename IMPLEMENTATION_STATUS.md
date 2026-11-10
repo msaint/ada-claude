@@ -19,11 +19,15 @@ All E2E and integration runs use the **deterministic development model**. They p
 - ✅ Start a course with no account; guest banner; one-course limit and guest model budget (`account_required` → account dialog); sign-up keeps guest data in place; sign-in moves it into the existing account; per-IP guest creation limit; stale guest purge; guest data deletion. Covered by `tests/integration/guest.test.ts` and `tests/e2e/guest.spec.ts`.
 - 🟡 Stale guests are purged only when new guests arrive (no scheduled job yet).
 
+## Email: password reset and review reminders (D21)
+- ✅ Password reset by emailed single-use link; email confirmation before any reminder; hourly review reminders (opt-in, confirmed address, quiet hours, one a day, weekly limit, skipped right after studying); unsubscribe page and one-click unsubscribe header. Covered by `tests/integration/email.test.ts` with an in-memory outbox.
+- 🟡 Nothing is sent until `RESEND_API_KEY` and `EMAIL_FROM` are set in Vercel. Reminders also need `CRON_SECRET` in Vercel and the same value plus `APP_URL` in GitHub Actions. Not yet run against the live Resend API.
+
 ## Refinements (D20)
 - ✅ Sign-in attempt limit; scheduled cleanup endpoint + Vercel cron; lesson length from time budget; new course opens into its first step; pasted background in setup; usage queries in `docs/METRICS.md`. Covered by `tests/integration/refinements.test.ts`, unit tests and the E2E journeys.
 - 🟡 Web-checked explanations with sources: built and tested with a fake Claude client, **off by default** (`ADA_WEB_GROUNDING=on` to enable). Not yet run against the live API.
 - 🟡 The cron job runs only once `CRON_SECRET` is set in Vercel.
-- ⏭️ Not built yet: email reminders and password reset (need an email provider), real-model evaluation set (spends model budget), streaming responses, evidence-driven re-planning, PDF upload, splitting `sessions.ts`.
+- ⏭️ Not built yet: real-model evaluation set (spends model budget), streaming responses, evidence-driven re-planning, PDF upload, splitting `sessions.ts`.
 
 ## Reliability under concurrency (D19)
 - ✅ Model calls no longer run inside database transactions; short-lived claims prevent duplicate calls; apply steps re-check state. Covered by `tests/integration/connections.test.ts` (no open transaction during model calls; 8 concurrent setups on a 3-connection pool finish; a double click makes one model call), which fails against the previous code.
@@ -73,7 +77,7 @@ Review items: one active per concept, +1 day after the first meaningful attempt,
 - ✅ Authorization regression suite. Idempotency under concurrent requests (draft create, answer, convert, attempt, next).
 - ✅ Accessibility: labeled controls, radiogroup semantics, focus moves on transitions (heading or Continue), Escape closes dialogs and drawer, ≥44px targets, reduced motion, no horizontal scroll at 390px.
 - 🟡 **No rate limiting on auth endpoints.** Sign-in brute-force throttling should come before a public launch.
-- 🟡 No password reset or email verification (no mail provider configured).
+- ✅ Password reset and email confirmation (D21), once Resend is configured.
 - 🟡 Expired auth sessions are not garbage-collected (they are ignored once expired).
 
 ## P0 Definition of Done
@@ -99,13 +103,12 @@ Review items: one active per concept, +1 day after the first meaningful attempt,
 | No fabricated proficiency metric or citations; mocks never presented as AI | ✅ |
 
 ## Not implemented / deferred
-- ⏭️ Reminders and notifications (P1). Preferences are stored, default off, and email consent requires reminders. Nothing is ever sent.
+- ⏭️ Push or in-app notifications. Email reminders are built (D21).
 - ⏭️ Source-grounded retrieval and citations (P1). The `source_references` table exists, but nothing writes to it. Content is labeled AI-generated, and prompts forbid invented URLs.
 - ⏭️ Code execution sandbox, graph visualization, adaptive difficulty beyond the planner's difficulty steps, cross-course mentor recommendations (P1).
 - ⏭️ Google sign-in.
 
 ## Suggested next steps
 1. Run `npm run smoke:model` with a real key. Review the output quality for the four topics and tune the prompts in `src/lib/ai/prompts`.
-2. Add sign-in throttling, password reset and email verification (pick a mail provider).
 3. Decide between Supabase (RLS) and staying on plain Postgres. If Supabase, port the migrations and add policies.
-4. P1: reminder delivery (cron worker over `review_items` + `notification_log`, quiet hours, daily cap), plus retrieval with verified citations.
+4. P1: retrieval with verified citations.

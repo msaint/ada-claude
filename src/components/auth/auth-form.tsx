@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { api, ApiError, safeNext } from "@/lib/client/api";
 import { Button, InlineError } from "@/components/ui/primitives";
 
-export function AuthForm({ initialMode = "signin", isGuest = false, next = "/app" }: { initialMode?: "signin" | "signup"; isGuest?: boolean; next?: string }) {
+export function AuthForm({ initialMode = "signin", isGuest = false, next = "/app", canReset = false }: { initialMode?: "signin" | "signup"; isGuest?: boolean; next?: string; canReset?: boolean }) {
   const [mode, setMode] = useState<"signin" | "signup">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -60,6 +61,13 @@ export function AuthForm({ initialMode = "signin", isGuest = false, next = "/app
         {mode === "signup" && (
           <p id="pw-hint" className="text-xs text-muted">
             At least 8 characters.
+          </p>
+        )}
+        {mode === "signin" && canReset && (
+          <p className="text-right">
+            <Link href="/forgot-password" className="text-sm text-muted underline-offset-2 hover:text-ink hover:underline">
+              Forgot password?
+            </Link>
           </p>
         )}
       </div>

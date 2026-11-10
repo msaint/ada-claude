@@ -10,6 +10,8 @@ Goal: develop, test, deploy and migrate from any machine with a browser. No secr
 | Production runtime secrets (`DATABASE_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …) | **Vercel → Settings → Environment Variables → Production** | production deployment |
 | Preview/staging runtime secrets | **Vercel → Environment Variables → Preview** (staging Supabase, same or separate model keys) | every branch/PR preview deployment |
 | Migration credentials | **GitHub → Settings → Environments → `production` / `staging` → secret `MIGRATION_DATABASE_URL`** | `Migrate database` workflow |
+| Email (Resend) key and sender: `RESEND_API_KEY`, `EMAIL_FROM` | **Vercel → Environment Variables** | deployments |
+| `CRON_SECRET` for scheduled jobs | **Vercel → Environment Variables**, and **GitHub → Actions secret** `CRON_SECRET` (plus variable `APP_URL`) | Vercel Cron, `Review reminders` workflow |
 | Databases | **Supabase**: two projects, `ada-prod` and `ada-staging` | Vercel + GitHub Actions only |
 | OpenAI key for Claude dev sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected by the proxy for `api.openai.com`, never visible in the sandbox) | Claude sessions |
 | Vercel access token for Claude sessions | **Claude Code cloud environment "Ada" → Network secrets** (injected for `api.vercel.com`; the CLI gets a placeholder `--token`) | Claude sessions (Vercel CLI/API) |

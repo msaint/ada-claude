@@ -2,6 +2,8 @@ import { db, json, tx } from "@/lib/db/client";
 import { AppError, notFound } from "@/lib/errors";
 import { formatInZone, postpone } from "@/lib/learning/review-scheduler";
 import { safeZone } from "@/lib/auth/session";
+import { emailEnabled } from "@/lib/email/mailer";
+import { sendVerification } from "@/lib/services/email";
 import type { DueReview } from "@/lib/schemas/dto";
 
 export async function dueReviews(ownerId: string, timezone: string, includeUpcoming = false): Promise<{ due: DueReview[]; upcoming: DueReview[] }> {
@@ -42,18 +44,23 @@ export type Preferences = {
   timezone: string;
   remindersEnabled: boolean;
   emailOptIn: boolean;
+  /** The address was confirmed by following an emailed link; reminders are only sent to confirmed addresses. */
+  emailVerified: boolean;
+  /** Whether this deployment can send email at all. */
+  emailAvailable: boolean;
   quietHours: { start: string; end: string };
 };
 
 export async function getPreferences(ownerId: string): Promise<Preferences> {
-  const [r] = await db()<{ email: string | null; is_guest: boolean; display_name: string | null; timezone: string; reminders_enabled: boolean; email_opt_in: boolean; quiet_hours_json: { start: string; end: string } }[]>`
-    select u.email, u.is_guest, p.display_name, p.timezone, pr.reminders_enabled, pr.email_opt_in, pr.quiet_hours_json
+  const [r] = await db()<{ email: string | null; is_guest: boolean; verified: boolean; display_name: string | null; timezone: string; reminders_enabled: boolean; email_opt_in: boolean; quiet_hours_json: { start: string; end: string } }[]>`
+    select u.email, u.is_guest, u.email_verified_at is not null as verified, p.display_name, p.timezone, pr.reminders_enabled, pr.email_opt_in, pr.quiet_hours_json
     from users u join profiles p on p.user_id = u.id join user_preferences pr on pr.owner_id = u.id where u.id = ${ownerId}`;
   if (!r) throw notFound("Profile");
-  return { email: r.email, isGuest: r.is_guest, displayName: r.display_name, timezone: r.timezone, remindersEnabled: r.reminders_enabled, emailOptIn: r.email_opt_in, quietHours: r.quiet_hours_json };
+  return { email: r.email, isGuest: r.is_guest, displayName: r.display_name, timezone: r.timezone, remindersEnabled: r.reminders_enabled, emailOptIn: r.email_opt_in, emailVerified: r.verified, emailAvailable: emailEnabled(), quietHours: r.quiet_hours_json };
 }
 
-export async function updatePreferences(ownerId: string, p: Partial<Omit<Preferences, "email">>) {
+export async function updatePreferences(ownerId: string, p: Partial<Pick<Preferences, "displayName" | "timezone" | "remindersEnabled" | "emailOptIn" | "quietHours">>) {
+  const before = await getPreferences(ownerId);
   await tx(async (t) => {
     if (p.displayName !== undefined || p.timezone !== undefined) {
       const [cur] = await t<{ display_name: string | null; timezone: string }[]>`select display_name, timezone from profiles where user_id = ${ownerId} for update`;
@@ -62,10 +69,14 @@ export async function updatePreferences(ownerId: string, p: Partial<Omit<Prefere
     const [cur] = await t<{ reminders_enabled: boolean; email_opt_in: boolean; quiet_hours_json: object }[]>`select * from user_preferences where owner_id = ${ownerId} for update`;
     const reminders = p.remindersEnabled ?? cur.reminders_enabled;
     // Email delivery requires reminders to be on; turning reminders off withdraws email consent too.
-    const email = reminders ? (p.emailOptIn ?? cur.email_opt_in) : false;
+    // Guests have no address to send to.
+    const email = reminders && !before.isGuest ? (p.emailOptIn ?? cur.email_opt_in) : false;
     await t`update user_preferences set reminders_enabled = ${reminders}, email_opt_in = ${email}, quiet_hours_json = ${json(p.quietHours ?? cur.quiet_hours_json)} where owner_id = ${ownerId}`;
   });
-  return getPreferences(ownerId);
+  const after = await getPreferences(ownerId);
+  // Newly opted in to email with an unconfirmed address: ask them to confirm it.
+  if (after.emailOptIn && !before.emailOptIn && !after.emailVerified) await sendVerification(ownerId);
+  return after;
 }
 
 /** Full export of the learner's own data (JSON). */

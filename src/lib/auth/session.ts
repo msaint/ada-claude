@@ -191,5 +191,6 @@ export async function cleanupExpiredData() {
   const attempts = await db()`delete from auth_attempts where created_at < now() - interval '1 day'`;
   const claims = await db()`delete from work_claims where expires_at < now() - interval '1 hour'`;
   const prepared = await db()`delete from prepared_activities where created_at < now() - interval '1 day'`;
-  return { authAttempts: attempts.count, claims: claims.count, prepared: prepared.count };
+  const tokens = await db()`delete from email_tokens where expires_at < now() - interval '1 day'`;
+  return { authAttempts: attempts.count, claims: claims.count, prepared: prepared.count, emailTokens: tokens.count };
 }

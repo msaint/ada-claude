@@ -96,3 +96,20 @@ Most waiting was model latency for generating the next activity *after* the lear
 
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.
+
+### D21. Email through Resend: password reset and review reminders
+**Provider.** Resend's HTTP API, called directly with `fetch` (`src/lib/email/mailer.ts`); no SDK dependency. Email is enabled only when both `RESEND_API_KEY` and `EMAIL_FROM` are set. Without them the "Forgot password?" link is hidden, the reminder checkbox is disabled, and nothing is sent. `EMAIL_TRANSPORT=memory` is an in-process outbox for tests.
+
+**Tokens.** Reset and confirmation links carry a random 256-bit token; only its SHA-256 hash is stored (`email_tokens`). Reset links last 60 minutes, confirmation links 48 hours, both single-use. One account can trigger at most 3 emails of a kind per hour.
+
+**Password reset.** The request endpoint answers identically whether or not the address has an account, sends the email after the response, and shares the sign-in attempt limit. Confirming sets the password, signs out every existing session, marks the address confirmed, and signs the browser in.
+
+**Reminders only to confirmed addresses.** Anyone can sign up with someone else's address, so opting in to email reminders sends a confirmation link first, and reminders go only to addresses whose owner clicked it. Links from email open a page with a button rather than acting on load, so mail scanners that open links can't confirm or unsubscribe by accident.
+
+**Who gets a reminder.** `GET /api/cron/reminders` (needs `CRON_SECRET`) emails a learner only if they turned on reminders and email, confirmed the address, have a review due, are outside their quiet hours in their time zone, haven't answered anything in the last 2 hours, and are under their weekly limit (default 3). At most one per local day: each send is first claimed in `notification_log` under a per-day key, so repeated or overlapping runs can't double-send, and a failed send releases the claim.
+
+**Schedule.** Reminders need an hourly run to respect time zones, and Vercel's Hobby plan allows only daily cron jobs. The hourly trigger is therefore a GitHub Actions workflow (`.github/workflows/reminders.yml`) that calls the endpoint. GitHub schedules can run several minutes late, which is fine here. If the project moves to Vercel Pro, a `vercel.json` cron can replace it.
+
+**Unsubscribe.** Every reminder has a link to an unsubscribe page and `List-Unsubscribe` / `List-Unsubscribe-Post` headers for one-click unsubscribe in mail apps. The token is a separate per-user random value that can only turn email off.
+
+**Not done.** Changing an account's email address; verifying the address at sign-up (it is verified only when needed); push notifications.

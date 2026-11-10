@@ -1,0 +1,33 @@
+name: Review reminders
+
+# Asks the production app, once an hour, to email learners whose reviews are due.
+# The app decides who gets one (opt-in, confirmed address, quiet hours, one a day),
+# so running this more or less often is safe.
+#
+# Needs, under Settings → Secrets and variables → Actions:
+#   secret   CRON_SECRET   the same value as CRON_SECRET in Vercel (Production)
+#   variable APP_URL       e.g. https://ada-learning-platform.vercel.app
+# Until both exist, the job does nothing.
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send due review reminders
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then
+            echo "CRON_SECRET or APP_URL is not set; skipping."
+            exit 0
+          fi
+          curl --fail-with-body --silent --show-error --max-time 90 --retry 2 \
+            -H "Authorization: Bearer $CRON_SECRET" "${APP_URL%/}/api/cron/reminders"
