@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { db, json, tx, type Db, type Tx } from "@/lib/db/client";
 import { env } from "@/lib/env";
 import { runAfterResponse } from "@/lib/background";
+import { withClaim } from "@/lib/db/claims";
 import { AppError, conflict, invalid, notFound } from "@/lib/errors";
 import { callModel } from "@/lib/ai";
 import { usingMockModel } from "@/lib/env";
@@ -230,67 +231,107 @@ export async function pauseSession(ownerId: string, sessionId: string) {
  * feedback, or is an explanation) and either generates the next validated
  * activity or completes the session. A stale `fromActivityId` is a no-op that
  * returns the current state, so double clicks never create two activities.
+ *
+ * No database connection is held while the model runs: the step is decided
+ * from a plain read, generated outside any transaction, then applied in a
+ * short transaction that re-checks the session hasn't moved. A claim on the
+ * session makes a concurrent request wait instead of generating a duplicate.
  */
 export async function advanceSession(ownerId: string, sessionId: string, fromActivityId: string | null) {
   let newActivityId: string | null = null;
-  await tx(async (t) => {
-    const s = await loadSession(t, ownerId, sessionId, true);
-    if (s.status === "completed") return;
-    if ((s.current_activity_id ?? null) !== fromActivityId) return; // stale request
-    if (s.status === "paused") await t`update sessions set status = 'active' where id = ${s.id}`;
-    if (s.current_activity_id) {
-      const [a] = await t<ActivityRow[]>`select * from activities where id = ${s.current_activity_id} for no key update`;
-      if (a.status === "presented" && a.kind !== "explanation") throw conflict("Answer or skip this activity first.");
-      if (a.status === "evaluating") throw conflict("This answer is still being graded.");
-      if (a.status !== "completed") await t`update activities set status = 'completed' where id = ${a.id}`;
-    }
-    const { course, concepts, stepsRows, decision } = await planNext(t, ownerId, s);
-    if (decision.action === "complete") {
-      const titleOf = (id: string) => concepts.find((c) => c.id === id)?.title ?? "";
-      const summary: SessionSummary = {
-        reason: decision.reason,
-        assessed: stepsRows.filter((r) => r.result && r.result !== "exposure").length,
-        correct: stepsRows.filter((r) => r.result === "correct").length,
-        conceptsTouched: [...new Set(stepsRows.map((r) => titleOf(r.concept_id)).filter(Boolean))],
-      };
-      if (s.kind === "placement") {
-        summary.placement = stepsRows.map((r) => ({
-          conceptId: r.concept_id,
-          title: titleOf(r.concept_id),
-          result: r.result === "correct" || r.result === "partial" || r.result === "incorrect" ? r.result : "unknown",
-        }));
-        // Suggest the first plan concept the learner didn't clearly show (by course order).
-        const strong = new Set(stepsRows.filter((r) => r.result === "correct").map((r) => r.concept_id));
-        const firstGap = concepts.filter((c) => c.inPlan).sort((a, b) => a.position - b.position).find((c) => !strong.has(c.id));
-        summary.suggestedConceptId = firstGap?.id ?? null;
+  const guard = (a: ActivityRow) => {
+    if (a.status === "presented" && a.kind !== "explanation") throw conflict("Answer or skip this activity first.");
+    if (a.status === "evaluating") throw conflict("This answer is still being graded.");
+  };
+  await withClaim(`session:${sessionId}`, async () => {
+    type Generated = { spec: ActivitySpec; info: ModelInfo; prepared?: { mode: string; waitedMs: number } };
+    const generatedBySignature = new Map<string, Generated>();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      // 1. Decide (plain reads, no locks).
+      const s = await loadSession(db(), ownerId, sessionId);
+      if (s.status === "completed") return;
+      if ((s.current_activity_id ?? null) !== fromActivityId) return; // stale request
+      if (s.current_activity_id) {
+        const [a] = await db()<ActivityRow[]>`select * from activities where id = ${s.current_activity_id}`;
+        guard(a);
       }
-      if (s.kind === "assessment") {
-        const finals = stepsRows.filter((r) => r.purpose === "final");
-        const integrative = stepsRows.find((r) => r.purpose === "integrative");
-        const missed = [...new Set(finals.filter((r) => r.result !== "correct").map((r) => titleOf(r.concept_id)))];
-        const passed = finals.length > 0 && missed.length === 0 && !!integrative && (integrative.result === "correct" || integrative.result === "partial");
-        if (integrative && !(integrative.result === "correct" || integrative.result === "partial")) missed.push("Putting it together");
-        summary.assessment = { passed, missed };
-        await t`insert into course_events (course_id, event_type, payload_json) values (${course.id}, 'final_assessment', ${json({ sessionId: s.id, passed, missed })})`;
+      const { course, concepts, stepsRows, decision } = await planNext(db(), ownerId, s);
+      const seq = stepsRows.length + 1;
+
+      // 2. Generate (no transaction, no connection held).
+      let generated: Generated | null = null;
+      if (decision.action === "activity") {
+        const sig = signature(decision);
+        generated = generatedBySignature.get(sig) ?? null;
+        if (!generated) {
+          const prepared = s.current_activity_id ? await takePrepared(s.id, s.current_activity_id, sig) : null;
+          generated = prepared
+            ? { spec: prepared.spec, info: prepared.info, prepared: { mode: prepared.mode, waitedMs: prepared.waitedMs } }
+            : await generateSpec(ownerId, await buildActivityContext(db(), ownerId, course, concepts, s, decision, seq), decision);
+          generatedBySignature.set(sig, generated);
+        }
       }
-      await t`update sessions set status = 'completed', ended_at = now(), checkpoint_json = ${json({ ...s.checkpoint_json, summary })}, version = version + 1 where id = ${s.id}`;
-      await t`insert into course_events (course_id, event_type, payload_json) values (${course.id}, 'session_completed', ${json({ sessionId: s.id, ...summary, conceptsTouched: summary.conceptsTouched.length })})`;
-      await track(ownerId, "session_completed", { kind: s.kind, activities: stepsRows.length }, t);
-      return;
+
+      // 3. Apply (short transaction; re-check that nothing moved meanwhile).
+      const outcome = await tx(async (t) => {
+        const cur = await loadSession(t, ownerId, sessionId, true);
+        if (cur.status === "completed" || (cur.current_activity_id ?? null) !== fromActivityId) return "done" as const;
+        if (cur.version !== s.version) return "retry" as const; // paused / difficulty changed while generating
+        if (cur.status === "paused") await t`update sessions set status = 'active' where id = ${cur.id}`;
+        if (cur.current_activity_id) {
+          const [a] = await t<ActivityRow[]>`select * from activities where id = ${cur.current_activity_id} for no key update`;
+          guard(a);
+          if (a.status !== "completed") await t`update activities set status = 'completed' where id = ${a.id}`;
+        }
+        if (decision.action === "complete") {
+          const titleOf = (id: string) => concepts.find((c) => c.id === id)?.title ?? "";
+          const summary: SessionSummary = {
+            reason: decision.reason,
+            assessed: stepsRows.filter((r) => r.result && r.result !== "exposure").length,
+            correct: stepsRows.filter((r) => r.result === "correct").length,
+            conceptsTouched: [...new Set(stepsRows.map((r) => titleOf(r.concept_id)).filter(Boolean))],
+          };
+          if (cur.kind === "placement") {
+            summary.placement = stepsRows.map((r) => ({
+              conceptId: r.concept_id,
+              title: titleOf(r.concept_id),
+              result: r.result === "correct" || r.result === "partial" || r.result === "incorrect" ? r.result : "unknown",
+            }));
+            // Suggest the first plan concept the learner didn't clearly show (by course order).
+            const strong = new Set(stepsRows.filter((r) => r.result === "correct").map((r) => r.concept_id));
+            const firstGap = concepts.filter((c) => c.inPlan).sort((a, b) => a.position - b.position).find((c) => !strong.has(c.id));
+            summary.suggestedConceptId = firstGap?.id ?? null;
+          }
+          if (cur.kind === "assessment") {
+            const finals = stepsRows.filter((r) => r.purpose === "final");
+            const integrative = stepsRows.find((r) => r.purpose === "integrative");
+            const missed = [...new Set(finals.filter((r) => r.result !== "correct").map((r) => titleOf(r.concept_id)))];
+            const passed = finals.length > 0 && missed.length === 0 && !!integrative && (integrative.result === "correct" || integrative.result === "partial");
+            if (integrative && !(integrative.result === "correct" || integrative.result === "partial")) missed.push("Putting it together");
+            summary.assessment = { passed, missed };
+            await t`insert into course_events (course_id, event_type, payload_json) values (${course.id}, 'final_assessment', ${json({ sessionId: cur.id, passed, missed })})`;
+          }
+          await t`update sessions set status = 'completed', ended_at = now(), checkpoint_json = ${json({ ...cur.checkpoint_json, summary })}, version = version + 1 where id = ${cur.id}`;
+          await t`insert into course_events (course_id, event_type, payload_json) values (${course.id}, 'session_completed', ${json({ sessionId: cur.id, ...summary, conceptsTouched: summary.conceptsTouched.length })})`;
+          await track(ownerId, "session_completed", { kind: cur.kind, activities: stepsRows.length }, t);
+          return "done" as const;
+        }
+        const g = generated!;
+        const activityId = await insertActivity(t, cur, course, decision, seq, g.spec, {
+          ...g.info,
+          plannerReason: decision.reason,
+          prefetched: !!g.prepared,
+          ...(g.prepared ? { prefetchMode: g.prepared.mode, prefetchWaitMs: g.prepared.waitedMs } : {}),
+        });
+        if (cur.current_activity_id) await t`delete from prepared_activities where session_id = ${cur.id} and after_activity_id = ${cur.current_activity_id}`;
+        await t`update sessions set current_activity_id = ${activityId}, version = version + 1 where id = ${cur.id}`;
+        if (stepsRows.length === 0) await track(ownerId, "first_activity_rendered", { kind: decision.kind }, t);
+        newActivityId = activityId;
+        return "done" as const;
+      });
+      if (outcome === "done") return;
     }
-    const seq = stepsRows.length + 1;
-    const prepared = s.current_activity_id ? await takePrepared(s.id, s.current_activity_id, signature(decision)) : null;
-    const generated = prepared ?? (await generateSpec(ownerId, await buildActivityContext(t, ownerId, course, concepts, s, decision, seq), decision));
-    const activityId = await insertActivity(t, s, course, decision, seq, generated.spec, {
-      ...generated.info,
-      plannerReason: decision.reason,
-      prefetched: !!prepared,
-      ...(prepared ? { prefetchMode: prepared.mode, prefetchWaitMs: prepared.waitedMs } : {}),
-    });
-    if (s.current_activity_id) await t`delete from prepared_activities where session_id = ${s.id} and after_activity_id = ${s.current_activity_id}`;
-    await t`update sessions set current_activity_id = ${activityId}, version = version + 1 where id = ${s.id}`;
-    if (stepsRows.length === 0) await track(ownerId, "first_activity_rendered", { kind: decision.kind }, t);
-    newActivityId = activityId;
+    throw new AppError("conflict", "This lesson changed while Ada was preparing the next step. Try again.", true);
   });
   // While the learner works on this activity, prepare the next one if its outcome can't change it.
   if (newActivityId) await runAfterResponse("prepare_next", () => prepareNext(ownerId, sessionId));
@@ -442,8 +483,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /**
  * Uses a prepared activity if one matches the real decision. If it's still
  * generating, waits for it (bounded) rather than starting a duplicate call.
- * Reads go through the pool, not the caller's transaction, so the background
- * writer's commits are visible.
+ * Called with no transaction open, so no connection is held while waiting.
  */
 async function takePrepared(sessionId: string, afterActivityId: string, sig: string) {
   const started = Date.now();
@@ -564,34 +604,58 @@ async function conceptFor(t: Tx, a: ActivityRow) {
 
 const promptOf = (s: ActivitySpec) => ("promptMarkdown" in s ? s.promptMarkdown : s.bodyMarkdown);
 
+/**
+ * Hints and alternative explanations: checked from a short read, generated
+ * with no transaction open, then appended in a short transaction that
+ * re-checks the activity (idempotency key, limits, still unanswered).
+ */
 export async function requestHint(ownerId: string, activityId: string, key: string) {
-  return tx(async (t) => {
-    const a = await loadActivityForOwner(t, ownerId, activityId);
-    if (a.hints_json.some((h) => h.key === key)) return { hints: a.hints_json.map((h) => h.text) };
-    if (a.status !== "presented" || a.session_status === "completed") throw conflict("Hints are available before you answer.");
-    if (MEASUREMENT_SESSIONS.has(a.session_kind)) throw conflict("Hints aren't available during placement or the final check.");
-    if (a.kind !== "multiple_choice" && a.kind !== "free_response") throw invalid("Hints are only available for questions.");
-    if (a.hints_json.length >= MAX_HINTS) throw conflict("No more hints for this question — try your best answer.");
-    const c = await conceptFor(t, a);
+  return withClaim(`assist:${activityId}`, async () => {
+    const check = (a: Awaited<ReturnType<typeof loadActivityForOwner>>) => {
+      if (a.hints_json.some((h) => h.key === key)) return { hints: a.hints_json.map((h) => h.text) };
+      if (a.status !== "presented" || a.session_status === "completed") throw conflict("Hints are available before you answer.");
+      if (MEASUREMENT_SESSIONS.has(a.session_kind)) throw conflict("Hints aren't available during placement or the final check.");
+      if (a.kind !== "multiple_choice" && a.kind !== "free_response") throw invalid("Hints are only available for questions.");
+      if (a.hints_json.length >= MAX_HINTS) throw conflict("No more hints for this question — try your best answer.");
+      return null;
+    };
+    const before = await tx(async (t) => {
+      const a = await loadActivityForOwner(t, ownerId, activityId);
+      return { a, done: check(a), c: await conceptFor(t, a) };
+    });
+    if (before.done) return before.done;
+    const { a, c } = before;
     const s = a.spec_json;
     const answerKey = s.kind === "multiple_choice" ? s.choices.find((x) => x.id === s.correctChoiceId)!.text : s.kind === "free_response" ? s.idealAnswerPrivate : "";
     const { value } = await callModel(ownerId, "hint", (m) =>
       m.hint({ topic: c.topic, concept: c.brief, promptMarkdown: promptOf(s), previousHints: a.hints_json.map((h) => h.text), answerKey }),
     );
-    const hints = [...a.hints_json, { key, text: value.hintMarkdown }];
-    await t`update activities set hints_json = ${json(hints)} where id = ${a.id}`;
-    return { hints: hints.map((h) => h.text) };
+    return tx(async (t) => {
+      const cur = await loadActivityForOwner(t, ownerId, activityId);
+      const done = check(cur); // answered meanwhile → conflict; same key already stored → return it
+      if (done) return done;
+      const hints = [...cur.hints_json, { key, text: value.hintMarkdown }];
+      await t`update activities set hints_json = ${json(hints)} where id = ${cur.id}`;
+      return { hints: hints.map((h) => h.text) };
+    });
   });
 }
 
 export async function requestExplanation(ownerId: string, activityId: string, key: string) {
-  return tx(async (t) => {
-    const a = await loadActivityForOwner(t, ownerId, activityId);
-    if (a.alt_explanations_json.some((h) => h.key === key)) return { altExplanations: a.alt_explanations_json.map((h) => h.text) };
-    if (a.session_status === "completed") throw conflict("This session is complete.");
-    if (MEASUREMENT_SESSIONS.has(a.session_kind)) throw conflict("Explanations aren't available during placement or the final check.");
-    if (a.alt_explanations_json.length >= MAX_ALT_EXPLANATIONS) throw conflict("That's all the alternative explanations for now.");
-    const c = await conceptFor(t, a);
+  return withClaim(`assist:${activityId}`, async () => {
+    const check = (a: Awaited<ReturnType<typeof loadActivityForOwner>>) => {
+      if (a.alt_explanations_json.some((h) => h.key === key)) return { altExplanations: a.alt_explanations_json.map((h) => h.text) };
+      if (a.session_status === "completed") throw conflict("This session is complete.");
+      if (MEASUREMENT_SESSIONS.has(a.session_kind)) throw conflict("Explanations aren't available during placement or the final check.");
+      if (a.alt_explanations_json.length >= MAX_ALT_EXPLANATIONS) throw conflict("That's all the alternative explanations for now.");
+      return null;
+    };
+    const before = await tx(async (t) => {
+      const a = await loadActivityForOwner(t, ownerId, activityId);
+      return { a, done: check(a), c: await conceptFor(t, a) };
+    });
+    if (before.done) return before.done;
+    const { a, c } = before;
     const { value } = await callModel(ownerId, "explain", (m) =>
       m.explainDifferently({
         topic: c.topic,
@@ -601,9 +665,14 @@ export async function requestExplanation(ownerId: string, activityId: string, ke
         learnerBaseline: c.baseline,
       }),
     );
-    const alts = [...a.alt_explanations_json, { key, text: value.bodyMarkdown }];
-    await t`update activities set alt_explanations_json = ${json(alts)} where id = ${a.id}`;
-    return { altExplanations: alts.map((h) => h.text) };
+    return tx(async (t) => {
+      const cur = await loadActivityForOwner(t, ownerId, activityId);
+      const done = check(cur);
+      if (done) return done;
+      const alts = [...cur.alt_explanations_json, { key, text: value.bodyMarkdown }];
+      await t`update activities set alt_explanations_json = ${json(alts)} where id = ${cur.id}`;
+      return { altExplanations: alts.map((h) => h.text) };
+    });
   });
 }
 

@@ -14,8 +14,8 @@ Strict structured outputs require every field to be required, with no unions or 
 ### D3. The dev model also activates when no API key is set (non-production only)
 This makes `npm run dev` work out of the box. A yellow banner, a label on every generated piece of content, and `provider: "mock"` in the stored `model_info_json` make the fallback obvious. With `NODE_ENV=production` and no key, startup fails instead.
 
-### D4. Model calls inside row-locked transactions
-Draft advancement and session `next` hold a `SELECT … FOR UPDATE` on the draft or session row while calling the model. This gives exactly-once semantics under double clicks and concurrent tabs, with very little code. The cost is that a connection is held for the length of the model call (timeout 45s, pool of 10). At higher scale, the alternative is claim-by-version: bump the version, call the model outside the transaction, then apply only if the version still matches.
+### D4. Model calls inside row-locked transactions (superseded by D19)
+The first version held a `SELECT … FOR UPDATE` on the draft or session row while calling the model. It was simple and gave exactly-once behavior, but each in-flight model call pinned one pooled connection and needed a second one for the budget check and usage log. See D19 for the replacement.
 
 ### D5. Free-response grading is two-phase
 The submission is committed first (`pending_evaluation`). The model then grades outside any transaction. Evidence, mastery and review updates are written together in a second transaction, guarded by `status = 'pending_evaluation'`. A model failure never loses the learner's answer, and retrying with the same idempotency key resumes grading.
@@ -78,6 +78,12 @@ Most waiting was model latency for generating the next activity *after* the lear
 - **Matching and safety.** A prepared activity is used only if its signature (concept, kind, purpose, difficulty, review item) equals the planner's live decision. Otherwise, or if it failed or went stale, the step is generated live as before. Continue waits (bounded) for one still generating instead of starting a duplicate call. Session and activity locks are `FOR NO KEY UPDATE`, so background inserts (foreign-key share locks) never block on a waiting Continue. `model_info_json.prefetched` / `prefetchMode` / `prefetchWaitMs` record hit rate and wait.
 - **Per-operation effort for Claude.** Quick operations (setup questions, activities, hints, explanations) default to `low`, planning and grading to `medium` (`ADA_ANTHROPIC_EFFORT_FAST` / `_DEEP`). Defaults favor responsiveness; compare quality on the preview.
 - **Grading** a free-text answer can't start before submission; the UI says "Grading your answer…".
+
+### D19. No database connection is held while the model runs
+**Problem:** with D4, three concurrent model-backed requests on one Vercel instance (pool of 3) each held a connection inside a transaction while waiting for another connection for the budget check, and all stalled until timeout. `tests/integration/connections.test.ts` reproduces this against the old code (8 concurrent setups never finish).
+**Change:** every model-backed operation (draft advance, session advance, hints, alternative explanations) now runs in three steps: decide from a plain read; call the model with no transaction open; apply in a short transaction that re-checks the row (draft `version`, session `version` and `current_activity_id`, activity status and idempotency key) and discards or re-evaluates if it moved.
+**Claims:** `work_claims` (migration `0006`) gives each draft, session and activity a short-lived claim (`withClaim`, 150s expiry). A concurrent request waits by polling, with no connection held, instead of starting a duplicate model call, then runs normally and finds the work already applied. Claims only save model spend; correctness comes from the apply-step checks, so an expired claim is safe.
+**Behavior change:** a setup answer is now saved before the model runs, so it survives any model failure, including non-retryable ones such as the guest budget.
 
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.
