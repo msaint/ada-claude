@@ -6,6 +6,8 @@ import { log } from "@/lib/log";
 import {
   ActivityGenSchema,
   ClarificationResultSchema,
+  ClarifyReadySchema,
+  type ClarificationResult,
   CurriculumExpansionSchema,
   CurriculumProposalSchema,
   EvaluationResultSchema,
@@ -187,7 +189,11 @@ export class LLMLearningModel implements LearningModel {
 
   clarifyCourse(input: Parameters<LearningModel["clarifyCourse"]>[0]) {
     const webFetch = !input.linkContext && containsUrl(input.topic, ...input.answers.map((a) => a.answer));
-    return this.run("clarify", this.models.clarify, P.clarifyPrompt(input), ClarificationResultSchema, undefined, { webFetch });
+    // When the learner pressed "start now" (or the question limit is reached), only a "ready" result is valid,
+    // so a model that asks anyway gets one repair attempt instead of silently dropping to the generic fallback.
+    const forced = input.startNow || input.questionsAsked >= input.maxQuestions;
+    const schema: z.ZodType<ClarificationResult> = forced ? ClarifyReadySchema : ClarificationResultSchema;
+    return this.run("clarify", this.models.clarify, P.clarifyPrompt(input), schema, undefined, { webFetch });
   }
   compileCurriculum(input: Parameters<LearningModel["compileCurriculum"]>[0]) {
     const webFetch = !input.linkContext && containsUrl(input.topic, input.goalText, input.baseline, input.adjustment);

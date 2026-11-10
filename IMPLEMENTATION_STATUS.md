@@ -19,6 +19,11 @@ All E2E and integration runs use the **deterministic development model**. They p
 - ✅ Start a course with no account; guest banner; one-course limit and guest model budget (`account_required` → account dialog); sign-up keeps guest data in place; sign-in moves it into the existing account; per-IP guest creation limit; stale guest purge; guest data deletion. Covered by `tests/integration/guest.test.ts` and `tests/e2e/guest.spec.ts`.
 - 🟡 Stale guests are purged only when new guests arrive (no scheduled job yet).
 
+## Real-model evaluation (D22)
+- ✅ `npm run eval:model`: 50 hand-labelled grading cases and 20 generation topics, run against the real OpenAI models. Baseline in `evals/baselines/`. It found and led to fixes for: "start now" being ignored, a learner answer escaping its data wrapper, and lenient grading of misconceptions.
+- 🟡 Not yet run for Claude (needs the `Model evaluation` GitHub workflow with `ANTHROPIC_API_KEY` as a repository secret). Hints, follow-ups, reviews and plan revisions are not covered. Labels have had no second reviewer.
+- 🟡 Known content-quality limit with the default OpenAI models: roughly 1 in 20 explanations had a major factual error and one earlier run had a wrong answer key. See D22.
+
 ## Email: password reset and review reminders (D21)
 - ✅ Password reset by emailed single-use link; email confirmation before any reminder; hourly review reminders (opt-in, confirmed address, quiet hours, one a day, weekly limit, skipped right after studying); unsubscribe page and one-click unsubscribe header. Covered by `tests/integration/email.test.ts` with an in-memory outbox.
 - 🟡 Nothing is sent until `RESEND_API_KEY` and `EMAIL_FROM` are set in Vercel. Reminders also need `CRON_SECRET` in Vercel and the same value plus `APP_URL` in GitHub Actions. Not yet run against the live Resend API.
@@ -27,7 +32,7 @@ All E2E and integration runs use the **deterministic development model**. They p
 - ✅ Sign-in attempt limit; scheduled cleanup endpoint + Vercel cron; lesson length from time budget; new course opens into its first step; pasted background in setup; usage queries in `docs/METRICS.md`. Covered by `tests/integration/refinements.test.ts`, unit tests and the E2E journeys.
 - 🟡 Web-checked explanations with sources: built and tested with a fake Claude client, **off by default** (`ADA_WEB_GROUNDING=on` to enable). Not yet run against the live API.
 - 🟡 The cron job runs only once `CRON_SECRET` is set in Vercel.
-- ⏭️ Not built yet: real-model evaluation set (spends model budget), streaming responses, evidence-driven re-planning, PDF upload, splitting `sessions.ts`.
+- ⏭️ Not built yet: streaming responses, evidence-driven re-planning, PDF upload, splitting `sessions.ts`.
 
 ## Reliability under concurrency (D19)
 - ✅ Model calls no longer run inside database transactions; short-lived claims prevent duplicate calls; apply steps re-check state. Covered by `tests/integration/connections.test.ts` (no open transaction during model calls; 8 concurrent setups on a 3-connection pool finish; a double click makes one model call), which fails against the previous code.
@@ -109,6 +114,6 @@ Review items: one active per concept, +1 day after the first meaningful attempt,
 - ⏭️ Google sign-in.
 
 ## Suggested next steps
-1. Run `npm run smoke:model` with a real key. Review the output quality for the four topics and tune the prompts in `src/lib/ai/prompts`.
+1. Use `npm run eval:model` to compare newer models against the defaults (accuracy, speed, cost), then run it for Claude.
 3. Decide between Supabase (RLS) and staying on plain Postgres. If Supabase, port the migrations and add policies.
 4. P1: retrieval with verified citations.
