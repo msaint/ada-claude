@@ -40,6 +40,8 @@ export type CourseDraftContext = {
   startNow: boolean;
   /** Summary of linked pages captured earlier in this draft; when present, links aren't re-fetched. */
   linkContext: string | null;
+  /** Background the learner pasted (resume, notes). */
+  background?: string | null;
 };
 
 export type CurriculumContext = {
@@ -53,6 +55,7 @@ export type CurriculumContext = {
   assumptions: string[];
   adjustment?: string | null;
   linkContext?: string | null;
+  background?: string | null;
 };
 
 export type ExpansionContext = {
@@ -91,6 +94,8 @@ export type ActivityContext = {
   courseConcepts?: string[];
   /** The learner asked for harder (+1) or easier (-1) questions this session. */
   difficultyPreference?: number;
+  /** Let the provider search the web to check facts for this explanation (sources are recorded). */
+  webGrounding?: boolean;
 };
 
 export type EvaluationContext = {

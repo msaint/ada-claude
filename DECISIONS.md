@@ -85,5 +85,14 @@ Most waiting was model latency for generating the next activity *after* the lear
 **Claims:** `work_claims` (migration `0006`) gives each draft, session and activity a short-lived claim (`withClaim`, 150s expiry). A concurrent request waits by polling, with no connection held, instead of starting a duplicate model call, then runs normally and finds the work already applied. Claims only save model spend; correctness comes from the apply-step checks, so an expired claim is safe.
 **Behavior change:** a setup answer is now saved before the model runs, so it survives any model failure, including non-retryable ones such as the guest budget.
 
+### D20. Smaller refinements after the architecture review
+- **Sign-in attempt limit.** Failed sign-ins are recorded in `auth_attempts` (email and IP as truncated hashes). After 8 failures for an email, or 40 from one network, within 15 minutes, further attempts get `rate_limited` until the window passes.
+- **Scheduled cleanup.** `GET /api/cron/cleanup` (Vercel Cron, daily, `vercel.json`) purges expired guests and stale operational rows. It requires `Authorization: Bearer $CRON_SECRET` and does nothing when the secret is not configured.
+- **Lesson length follows the time budget.** `lessonLimits`: ≤30 min/week or a "quick" course → 5 steps; ≤120 → 8; more → 10.
+- **A new course opens into its first step.** "Start course" navigates with `?start=1`, which starts the first lesson automatically. Placement and review keep their own start screens, and ordinary visits still show a Start button, because opening a page should not spend model budget. The flag is cleared without remounting the lesson.
+- **Pasted background.** Setup accepts up to 8,000 characters of pasted resume or notes (`POST /course-drafts/:id/background`). It is sent to the setup model calls as learner data, re-plans any existing proposal, and is stored with the goal. PDF upload is not built.
+- **Web-checked explanations (off by default).** With `ADA_WEB_GROUNDING=on`, explanations are generated with Claude's server-side `web_search` tool (max 2 searches). Pages the model cited, or failing that the top results the tool returned (max 4), are stored in `source_references` and shown as "Sources Ada checked". Only provider-reported URLs are recorded. Questions and grading are never web-searched. It is off by default because it adds per-search cost and latency and has not been run against the live API; enable it on Preview first.
+- **Usage visibility.** `docs/METRICS.md` has read-only SQL for the funnel, return rate, reviews, model latency and failures.
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.

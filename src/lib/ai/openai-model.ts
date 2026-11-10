@@ -25,12 +25,15 @@ export type TransportRequest = {
   timeoutMs: number;
   /** Let the provider fetch URLs present in the request (only providers with a server-side fetch tool honor it). */
   webFetch?: boolean;
+  /** Let the provider search the web (only providers with a server-side search tool honor it). */
+  webSearch?: boolean;
   /** Reasoning effort for this operation (providers that support it). */
   effort?: string;
 };
 
 export interface JsonTransport {
   readonly supportsWebFetch?: boolean;
+  readonly supportsWebSearch?: boolean;
   complete(req: TransportRequest): Promise<{
     text: string;
     inputTokens?: number;
@@ -107,9 +110,10 @@ export class LLMLearningModel implements LearningModel {
     user: string,
     schema: z.ZodType<T>,
     semantic?: (v: T) => { ok: true; value: T } | { ok: false; errors: string[] },
-    opts: { webFetch?: boolean } = {},
+    opts: { webFetch?: boolean; webSearch?: boolean } = {},
   ): Promise<WithInfo<T>> {
     const webFetch = !!opts.webFetch && !!this.transport.supportsWebFetch;
+    const webSearch = !!opts.webSearch && !!this.transport.supportsWebSearch;
     const sources = new Map<string, FetchedSource>();
     const jsonSchema = JSON.stringify(z.toJSONSchema(schema, { io: "input", unrepresentable: "any" }));
     const baseUser = `${user}\n\nJSON Schema for your output:\n${jsonSchema}`;
@@ -119,7 +123,7 @@ export class LLMLearningModel implements LearningModel {
     let prompt = baseUser;
     let lastErrors: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
-      const res = await this.callWithRetry(op, model, prompt, webFetch);
+      const res = await this.callWithRetry(op, model, prompt, webFetch, webSearch);
       for (const s of res.sources ?? []) sources.set(s.url, s);
       inputTokens += res.inputTokens ?? 0;
       outputTokens += res.outputTokens ?? 0;
@@ -154,7 +158,7 @@ export class LLMLearningModel implements LearningModel {
     throw new ModelError("model_invalid_output", `The model returned invalid ${op} output (${lastErrors[0] ?? "unknown"}).`, true);
   }
 
-  private async callWithRetry(op: Op, model: string, user: string, webFetch = false) {
+  private async callWithRetry(op: Op, model: string, user: string, webFetch = false, webSearch = false) {
     const max = this.opts.maxTransientRetries ?? 2;
     const base = this.opts.retryBaseMs ?? 400;
     for (let i = 0; ; i++) {
@@ -162,10 +166,11 @@ export class LLMLearningModel implements LearningModel {
         return await this.transport.complete({
           model,
           system: P.SYSTEM,
-          user: webFetch ? `${user}\n\n${P.WEB_FETCH_NOTE}` : user,
+          user: `${user}${webFetch ? `\n\n${P.WEB_FETCH_NOTE}` : ""}${webSearch ? `\n\n${P.WEB_SEARCH_NOTE}` : ""}`,
           maxTokens: BUDGET[op],
           timeoutMs: this.opts.timeoutMs,
           webFetch,
+          webSearch,
           effort: this.opts.effortByOp?.[op],
         });
       } catch (err) {
@@ -203,8 +208,13 @@ export class LLMLearningModel implements LearningModel {
     return this.run("expand", this.models.compile, P.expandPrompt(input), CurriculumExpansionSchema, undefined, { webFetch });
   }
   generateActivity(input: Parameters<LearningModel["generateActivity"]>[0]) {
-    return this.run("activity", this.models.tutor, P.activityPrompt(input), ActivityGenSchema, (v) =>
-      v.kind === input.kind ? { ok: true, value: v } : { ok: false, errors: [`kind must be "${input.kind}"`] },
+    return this.run(
+      "activity",
+      this.models.tutor,
+      P.activityPrompt(input),
+      ActivityGenSchema,
+      (v) => (v.kind === input.kind ? { ok: true, value: v } : { ok: false, errors: [`kind must be "${input.kind}"`] }),
+      { webSearch: !!input.webGrounding && input.kind === "explanation" },
     );
   }
   evaluateAnswer(input: Parameters<LearningModel["evaluateAnswer"]>[0]) {

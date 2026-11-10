@@ -14,7 +14,10 @@ const WEB_FETCH_TOOL: Anthropic.Beta.BetaWebFetchTool20260209 = {
   max_uses: 3,
   max_content_tokens: 12000,
 };
+/** Server-side web search, used to check facts while writing explanations. */
+const WEB_SEARCH_TOOL: Anthropic.Beta.BetaWebSearchTool20260209 = { type: "web_search_20260209", name: "web_search", max_uses: 2 };
 const MAX_CONTINUATIONS = 3;
+const MAX_SEARCH_SOURCES = 4;
 
 /**
  * Anthropic transport for LLMLearningModel. The adapter owns the prompt,
@@ -32,6 +35,7 @@ const MAX_CONTINUATIONS = 3;
  */
 export class AnthropicTransport implements JsonTransport {
   readonly supportsWebFetch = true;
+  readonly supportsWebSearch = true;
   private client: MessagesClient;
   constructor(
     apiKey: string,
@@ -52,7 +56,7 @@ export class AnthropicTransport implements JsonTransport {
           max_tokens: Math.max(16000, req.maxTokens),
           system: req.system,
           messages,
-          ...(req.webFetch ? { tools: [WEB_FETCH_TOOL] } : {}),
+          ...(req.webFetch || req.webSearch ? { tools: [...(req.webFetch ? [WEB_FETCH_TOOL] : []), ...(req.webSearch ? [WEB_SEARCH_TOOL] : [])] } : {}),
           ...((req.effort ?? this.opts.effort) ? { output_config: { effort: (req.effort ?? this.opts.effort) as AnthropicEffort } } : {}),
           betas: ["server-side-fallback-2026-07-01"],
           fallbacks: "default",
@@ -62,6 +66,7 @@ export class AnthropicTransport implements JsonTransport {
       inputTokens += res.usage.input_tokens;
       outputTokens += res.usage.output_tokens;
       for (const s of fetchedSources(res.content)) sources.set(s.url, s);
+      for (const s of searchSources(res.content)) if (!sources.has(s.url)) sources.set(s.url, s);
 
       if (res.stop_reason === "pause_turn" && i < MAX_CONTINUATIONS) {
         // Resume the server-side tool loop where it left off.
@@ -81,7 +86,7 @@ export class AnthropicTransport implements JsonTransport {
 export function finalText(content: Anthropic.Beta.BetaContentBlock[]): string {
   let lastTool = -1;
   content.forEach((b, i) => {
-    if (b.type === "server_tool_use" || b.type === "web_fetch_tool_result") lastTool = i;
+    if (b.type === "server_tool_use" || b.type.endsWith("_tool_result")) lastTool = i;
   });
   return content
     .slice(lastTool + 1)
@@ -98,4 +103,24 @@ export function fetchedSources(content: Anthropic.Beta.BetaContentBlock[]): Fetc
     out.push({ url: b.content.url, title: b.content.content.title ?? null, retrievedAt: b.content.retrieved_at ?? null });
   }
   return out;
+}
+
+/**
+ * Pages behind a web-searched answer: those the model cited, or failing that
+ * the top results the search tool returned. Only URLs the API reported are
+ * ever recorded, never URLs written by the model.
+ */
+export function searchSources(content: Anthropic.Beta.BetaContentBlock[]): FetchedSource[] {
+  const cited = new Map<string, FetchedSource>();
+  const found = new Map<string, FetchedSource>();
+  for (const b of content) {
+    if (b.type === "text") {
+      for (const c of b.citations ?? []) {
+        if (c.type === "web_search_result_location" && /^https?:\/\//i.test(c.url)) cited.set(c.url, { url: c.url, title: c.title ?? null, retrievedAt: null });
+      }
+    } else if (b.type === "web_search_tool_result" && Array.isArray(b.content)) {
+      for (const r of b.content) if (/^https?:\/\//i.test(r.url)) found.set(r.url, { url: r.url, title: r.title ?? null, retrievedAt: null });
+    }
+  }
+  return [...(cited.size ? cited : found).values()].slice(0, MAX_SEARCH_SOURCES);
 }

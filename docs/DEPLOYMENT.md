@@ -55,6 +55,8 @@ Optional variables, with defaults:
 | `ADA_ANTHROPIC_EFFORT_FAST` / `_DEEP` | `low` for questions, hints, explanations / `medium` for planning and grading |
 | `ADA_MODEL_CLARIFY` / `_COMPILE` / `_TUTOR` / `_EVALUATE` | `gpt-4.1-mini` / `gpt-4.1` / `gpt-4.1-mini` / `gpt-4.1-mini` |
 | `ADA_MODEL_CALLS_PER_MINUTE` / `_PER_DAY` | `20` / `400` per user |
+| `CRON_SECRET` | unset. Set a random 16+ character value to enable the daily cleanup job (Vercel Cron sends it automatically). |
+| `ADA_WEB_GROUNDING` | `off`. Set `on` to let Claude web-search while writing explanations and show sources (adds cost and latency). |
 | `DB_POOL_MAX` | `3` per function instance |
 
 **Don't set `MOCK_MODEL`.** In production the app refuses to start without at least one provider key, so the dev model can never serve real users by accident.

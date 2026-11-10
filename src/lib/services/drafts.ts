@@ -19,6 +19,8 @@ export type DraftState = {
   interpretation: Interpretation | null;
   adjustment: string | null;
   processedKeys: string[];
+  /** Background the learner pasted during setup (resume, notes). */
+  background?: string | null;
   /** Summary of pages the learner linked, written by the model after reading them. */
   linkContext?: string | null;
   /** Pages the provider actually fetched (verified by the API, never model-invented). */
@@ -94,6 +96,7 @@ export function draftView(row: DraftRow): CourseDraftView {
     convertedCourseId: row.converted_course_id,
     error: row.last_error,
     sourcesRead: (s.sources ?? []).map((x) => ({ url: x.url, title: x.title })),
+    background: s.background ?? null,
     devModel: usingMockModel(),
   };
 }
@@ -173,6 +176,7 @@ async function advanceDraft(ownerId: string, draftId: string): Promise<DraftRow>
               maxQuestions: MAX_QUESTIONS,
               startNow: forced,
               linkContext: state.linkContext ?? null,
+              background: state.background ?? null,
             }),
           );
           state = withLinks(state, value.status === "ask" ? value.link_context : value.interpretation.link_context, clarifyInfo.sources);
@@ -200,6 +204,7 @@ async function advanceDraft(ownerId: string, draftId: string): Promise<DraftRow>
             assumptions: interp.assumptions,
             adjustment: state.adjustment,
             linkContext: state.linkContext ?? interp.link_context ?? null,
+            background: state.background ?? null,
           }),
         );
         state = withLinks(state, null, info.sources);
@@ -318,6 +323,23 @@ export async function backDraft(ownerId: string, draftId: string, expectedVersio
   return draftView(await advanceDraft(ownerId, draftId)); // no-op when a question is open again
 }
 
+export const MAX_BACKGROUND_CHARS = 8000;
+
+/**
+ * Saves background the learner pastes (resume, notes) and re-plans with it:
+ * the interpretation and any proposal are recomputed; an open question stays open.
+ */
+export async function setDraftBackground(ownerId: string, draftId: string, input: { text: string; expectedVersion: number }): Promise<CourseDraftView> {
+  await tx(async (t) => {
+    const row = await loadForUpdate(t, draftId, ownerId);
+    if (row.status === "converted") throw conflict("This course has already been created.");
+    if (row.version !== input.expectedVersion) throw conflict("This setup changed in another tab. Showing the latest.", { draft: draftView(row) });
+    const text = input.text.replace(/\u0000/g, "").trim().slice(0, MAX_BACKGROUND_CHARS);
+    await save(t, row, { state_json: { ...row.state_json, background: text || null, interpretation: null }, status: "collecting", proposal_json: null, last_error: null });
+  });
+  return draftView(await advanceDraft(ownerId, draftId));
+}
+
 /** Generate or retry the proposal (also used for "Adjust" with a free-text adjustment). */
 export async function proposeDraft(ownerId: string, draftId: string, input: { adjustment?: string; expectedVersion: number }): Promise<CourseDraftView> {
   await tx(async (t) => {
@@ -345,7 +367,7 @@ export async function convertDraft(ownerId: string, draftId: string): Promise<{ 
     const [goal] = await t<{ id: string }[]>`
       insert into course_goal_versions (course_id, version, intent, goal_text, success_criteria_json, time_budget_minutes_weekly, baseline_json, depth, reason)
       values (${course.id}, 1, ${interp.intent}, ${interp.goal_text}, ${json(plan.success_criteria.length ? plan.success_criteria : interp.success_criteria)},
-              ${interp.time_budget_minutes_weekly ?? plan.suggested_minutes_weekly}, ${json({ text: interp.baseline, assumptions: interp.assumptions, link_context: row.state_json.linkContext ?? interp.link_context ?? null })}, ${interp.depth}, 'initial')
+              ${interp.time_budget_minutes_weekly ?? plan.suggested_minutes_weekly}, ${json({ text: interp.baseline, assumptions: interp.assumptions, link_context: row.state_json.linkContext ?? interp.link_context ?? null, background: row.state_json.background ?? null })}, ${interp.depth}, 'initial')
       returning id`;
     await t`update courses set active_goal_version_id = ${goal.id} where id = ${course.id}`;
     const ids = await insertConcepts(t, course.id, plan.concepts, 0, "initial");

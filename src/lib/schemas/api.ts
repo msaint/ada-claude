@@ -31,6 +31,7 @@ export const ProposeDraftBody = z.object({
   adjustment: learnerText(500).optional(),
   expectedVersion: z.number().int().positive(),
 });
+export const BackgroundDraftBody = z.object({ text: z.string().max(8000, "Keep it under 8,000 characters"), expectedVersion: z.number().int().positive() });
 export const BackDraftBody = z.object({ expectedVersion: z.number().int().positive() });
 export const ConvertDraftBody = z.object({ idempotencyKey: idemKey.optional() });
 

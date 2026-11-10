@@ -38,6 +38,10 @@ const EnvSchema = z.object({
     .optional()
     .transform((v) => v === "true" || v === "1"),
   APP_BASE_URL: z.string().default("http://localhost:3000"),
+  /** Shared secret for scheduled jobs (Vercel Cron sends it as a Bearer token). */
+  CRON_SECRET: z.string().min(16).optional(),
+  /** Let Claude search the web while writing explanations, and show the sources: on | off. */
+  ADA_WEB_GROUNDING: z.enum(["on", "off"]).default("off"),
   NODE_ENV: z.string().default("development"),
 });
 
@@ -53,6 +57,8 @@ export function env(): Env {
     OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || undefined,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
     ADA_MODEL_PROVIDER: process.env.ADA_MODEL_PROVIDER || undefined,
+    CRON_SECRET: process.env.CRON_SECRET || undefined,
+    ADA_WEB_GROUNDING: process.env.ADA_WEB_GROUNDING || undefined,
     ADA_ANTHROPIC_EFFORT: process.env.ADA_ANTHROPIC_EFFORT || undefined,
     ADA_ANTHROPIC_EFFORT_FAST: process.env.ADA_ANTHROPIC_EFFORT_FAST || undefined,
     ADA_ANTHROPIC_EFFORT_DEEP: process.env.ADA_ANTHROPIC_EFFORT_DEEP || undefined,

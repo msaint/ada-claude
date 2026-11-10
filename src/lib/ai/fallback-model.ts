@@ -42,7 +42,7 @@ export class FallbackLearningModel implements LearningModel {
     return this.run("expand", (m) => m.expandCurriculum(i), containsUrl(i.request));
   }
   generateActivity(i: Parameters<LearningModel["generateActivity"]>[0]) {
-    return this.run("activity", (m) => m.generateActivity(i));
+    return this.run("activity", (m) => m.generateActivity(i), !!i.webGrounding && i.kind === "explanation");
   }
   evaluateAnswer(i: Parameters<LearningModel["evaluateAnswer"]>[0]) {
     return this.run("evaluate", (m) => m.evaluateAnswer(i));

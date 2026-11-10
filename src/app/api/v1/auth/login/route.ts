@@ -1,11 +1,29 @@
 import { publicRoute, ok } from "@/lib/api/handler";
 import { SignInBody } from "@/lib/schemas/api";
-import { authenticate, createSession, destroySession, mergeGuestInto, readCookie, SESSION_COOKIE, sessionCookie } from "@/lib/auth/session";
+import {
+  assertSignInAllowed,
+  authenticate,
+  clientIp,
+  createSession,
+  destroySession,
+  mergeGuestInto,
+  readCookie,
+  recordSignInAttempt,
+  SESSION_COOKIE,
+  sessionCookie,
+} from "@/lib/auth/session";
+import { AppError } from "@/lib/errors";
 
 /** Signs in. A guest's course (if any) moves into the account being signed into. */
 export const POST = publicRoute(
   async ({ req, body, user }) => {
-    const account = await authenticate(body.email, body.password);
+    const ip = clientIp(req);
+    await assertSignInAllowed(body.email, ip);
+    const account = await authenticate(body.email, body.password).catch(async (e) => {
+      if (e instanceof AppError && e.code === "unauthenticated") await recordSignInAttempt(body.email, ip, false);
+      throw e;
+    });
+    await recordSignInAttempt(body.email, ip, true);
     if (user?.isGuest) {
       await mergeGuestInto(user.id, account.id);
     } else if (user) {

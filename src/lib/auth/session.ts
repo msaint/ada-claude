@@ -161,3 +161,35 @@ export function clientIp(req: Request): string | null {
   const fwd = req.headers.get("x-forwarded-for");
   return (fwd ? fwd.split(",")[0] : req.headers.get("x-real-ip"))?.trim() || null;
 }
+
+// ---------------------------------------------------------------- sign-in throttling
+
+export const MAX_FAILED_SIGNINS_PER_EMAIL = 8;
+export const MAX_FAILED_SIGNINS_PER_IP = 40;
+const emailHash = (email: string) => sha256(`ada-email:${email.trim().toLowerCase()}`).slice(0, 32);
+
+/** Refuses further attempts after too many recent failures for this email or network (15-minute window). */
+export async function assertSignInAllowed(email: string, ip: string | null) {
+  const [r] = await db()<{ by_email: number; by_ip: number }[]>`
+    select
+      count(*) filter (where email_hash = ${emailHash(email)})::int as by_email,
+      count(*) filter (where ip_hash = ${ipHash(ip)})::int as by_ip
+    from auth_attempts where not ok and created_at > now() - interval '15 minutes'
+      and (email_hash = ${emailHash(email)} or ip_hash = ${ipHash(ip)})`;
+  if (r.by_email >= MAX_FAILED_SIGNINS_PER_EMAIL || r.by_ip >= MAX_FAILED_SIGNINS_PER_IP) {
+    throw new AppError("rate_limited", "Too many sign-in attempts. Wait a few minutes and try again.", true);
+  }
+}
+
+export async function recordSignInAttempt(email: string, ip: string | null, ok: boolean) {
+  await db()`insert into auth_attempts (email_hash, ip_hash, ok) values (${emailHash(email)}, ${ipHash(ip)}, ${ok})`.catch(() => {});
+}
+
+/** Periodic housekeeping (run by the daily cron): expired guests and stale operational rows. */
+export async function cleanupExpiredData() {
+  await purgeStaleGuests();
+  const attempts = await db()`delete from auth_attempts where created_at < now() - interval '1 day'`;
+  const claims = await db()`delete from work_claims where expires_at < now() - interval '1 hour'`;
+  const prepared = await db()`delete from prepared_activities where created_at < now() - interval '1 day'`;
+  return { authAttempts: attempts.count, claims: claims.count, prepared: prepared.count };
+}

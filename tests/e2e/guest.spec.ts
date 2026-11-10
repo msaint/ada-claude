@@ -16,7 +16,7 @@ test("a first-time visitor creates and starts a course with no account, then sig
   await page.getByRole("button", { name: "Start course" }).click();
   await page.waitForURL(/\/app\/courses\//);
   const courseUrl = page.url();
-  await page.getByRole("button", { name: "Start", exact: true }).click();
+  // The new course opens straight into its first step.
   await page.getByRole("radio").first().check();
   await page.getByRole("button", { name: "Check answer" }).click();
   await expect(page.getByRole("region", { name: "Feedback" })).toBeVisible();

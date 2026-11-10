@@ -22,8 +22,7 @@ test("keyboard-only: create a course, answer with radios, pause and resume", asy
   await page.keyboard.press("Enter");
   await page.waitForURL(/\/app\/courses\//);
 
-  await page.getByRole("button", { name: "Start", exact: true }).focus();
-  await page.keyboard.press("Enter");
+  // A newly created course opens straight into its first step (no extra Start click).
   const first = page.getByRole("radio").first();
   await expect(first).toBeVisible();
   await first.focus();
