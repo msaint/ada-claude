@@ -1,4 +1,5 @@
 import { db, json, tx, type Db, type Tx } from "@/lib/db/client";
+import { withClaim } from "@/lib/db/claims";
 import { AppError, conflict, notFound } from "@/lib/errors";
 import { callModel } from "@/lib/ai";
 import { usingMockModel } from "@/lib/env";
@@ -130,11 +131,94 @@ async function save(t: Tx, row: DraftRow, patch: Partial<Pick<DraftRow, "state_j
   return { ...updated, last_error: lastError } as DraftRow;
 }
 
+async function readDraft(ownerId: string, draftId: string): Promise<DraftRow> {
+  const [row] = await db()<(Omit<DraftRow, "last_error"> & { last_error: string | null })[]>`
+    select * from course_drafts where id = ${draftId} and owner_id = ${ownerId}`;
+  if (!row) throw notFound("Course draft");
+  return { ...row, last_error: parseError(row.last_error) };
+}
+
 /**
  * Drives the draft forward: asks the next clarifying question, or interprets
  * and compiles a validated proposal. Model failures are recorded on the draft
  * (answers are never lost) and surfaced as a retryable inline error.
+ *
+ * No database connection is held while the model runs. Each step reads the
+ * draft, calls the model with no transaction open, then saves in a short
+ * transaction only if the draft's version is unchanged (otherwise the result
+ * is discarded and the step is re-evaluated). A claim on the draft makes a
+ * concurrent request wait instead of paying for a duplicate model call.
  */
+async function advanceDraft(ownerId: string, draftId: string): Promise<DraftRow> {
+  return withClaim(`draft:${draftId}`, async () => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const row = await readDraft(ownerId, draftId);
+      let state: DraftState = { ...row.state_json };
+      if (state.pending || row.status !== "collecting") return row;
+      /** Saves only if nobody changed the draft since we read it; null means "re-evaluate". */
+      const apply = (patch: Parameters<typeof save>[2]) =>
+        tx(async (t) => {
+          const cur = await loadForUpdate(t, draftId, ownerId);
+          return cur.version === row.version ? save(t, cur, patch) : null;
+        });
+      try {
+        if (!state.interpretation) {
+          const forced = state.startNow || state.answers.length >= MAX_QUESTIONS;
+          const { value, info: clarifyInfo } = await callModel(row.owner_id, "clarify", (m) =>
+            m.clarifyCourse({
+              topic: row.topic,
+              answers: state.answers.map(({ field, question, answer }) => ({ field, question, answer })),
+              askedFields: state.answers.map((a) => a.field),
+              questionsAsked: state.answers.length,
+              maxQuestions: MAX_QUESTIONS,
+              startNow: forced,
+              linkContext: state.linkContext ?? null,
+            }),
+          );
+          state = withLinks(state, value.status === "ask" ? value.link_context : value.interpretation.link_context, clarifyInfo.sources);
+          const repeat = value.status === "ask" && state.answers.some((a) => a.field === value.field);
+          if (value.status === "ask" && !forced && !repeat) {
+            state = { ...state, pending: { question: value.question, options: value.quick_replies, field: value.field, reasonCode: value.reason_code } };
+            const saved = await apply({ state_json: state, last_error: null });
+            if (saved) return saved;
+            continue;
+          }
+          state = { ...state, interpretation: value.status === "ready" ? value.interpretation : fallbackInterpretation(row.topic, state.answers) };
+          await apply({ state_json: state, last_error: null });
+          continue; // next pass compiles the plan from the saved interpretation
+        }
+        const interp = state.interpretation;
+        const { value: curriculum, info } = await callModel(row.owner_id, "compile", (m) =>
+          m.compileCurriculum({
+            topic: row.topic,
+            intent: interp.intent,
+            goalText: interp.goal_text,
+            depth: interp.depth,
+            baseline: interp.baseline,
+            timeBudgetMinutesWeekly: interp.time_budget_minutes_weekly,
+            successCriteria: interp.success_criteria,
+            assumptions: interp.assumptions,
+            adjustment: state.adjustment,
+            linkContext: state.linkContext ?? interp.link_context ?? null,
+          }),
+        );
+        state = withLinks(state, null, info.sources);
+        // Defense in depth: the adapter validated already; validate again before persisting.
+        const checked = validateCurriculum(curriculum);
+        if (!checked.ok) throw new AppError("model_invalid_output", "The generated plan was not usable. Please retry.", true);
+        const saved = await apply({ state_json: state, status: "ready", proposal_json: { curriculum: checked.value, interpretation: interp, modelInfo: info }, last_error: null });
+        if (saved) return saved;
+      } catch (err) {
+        if (!(err instanceof AppError) || !(err.retryable || err.code === "rate_limited")) throw err;
+        await track(row.owner_id, "model_error", { op: "draft_advance", code: err.code });
+        const saved = await apply({ state_json: state, last_error: { code: err.code, message: err.message, retryable: err.retryable } });
+        return saved ?? (await readDraft(ownerId, draftId));
+      }
+    }
+    return readDraft(ownerId, draftId);
+  });
+}
+
 /** Keeps the first useful link summary and accumulates fetched pages (deduplicated by URL). */
 function withLinks(state: DraftState, linkContext: string | null | undefined, fetched: FetchedSource[] | undefined): DraftState {
   const sources = new Map((state.sources ?? []).map((x) => [x.url, x]));
@@ -146,62 +230,6 @@ function withLinks(state: DraftState, linkContext: string | null | undefined, fe
   };
 }
 
-async function advance(t: Tx, row: DraftRow): Promise<DraftRow> {
-  let state: DraftState = { ...row.state_json };
-  if (state.pending || row.status !== "collecting") return row;
-  try {
-    if (!state.interpretation) {
-      const forced = state.startNow || state.answers.length >= MAX_QUESTIONS;
-      const { value, info: clarifyInfo } = await callModel(row.owner_id, "clarify", (m) =>
-        m.clarifyCourse({
-          topic: row.topic,
-          answers: state.answers.map(({ field, question, answer }) => ({ field, question, answer })),
-          askedFields: state.answers.map((a) => a.field),
-          questionsAsked: state.answers.length,
-          maxQuestions: MAX_QUESTIONS,
-          startNow: forced,
-          linkContext: state.linkContext ?? null,
-        }),
-      );
-      state = withLinks(state, value.status === "ask" ? value.link_context : value.interpretation.link_context, clarifyInfo.sources);
-      const repeat = value.status === "ask" && state.answers.some((a) => a.field === value.field);
-      if (value.status === "ask" && !forced && !repeat) {
-        state = { ...state, pending: { question: value.question, options: value.quick_replies, field: value.field, reasonCode: value.reason_code } };
-        return await save(t, row, { state_json: state, last_error: null });
-      }
-      state = {
-        ...state,
-        interpretation: value.status === "ready" ? value.interpretation : fallbackInterpretation(row.topic, state.answers),
-      };
-      row = await save(t, row, { state_json: state, last_error: null });
-    }
-    const interp = state.interpretation!;
-    const { value: curriculum, info } = await callModel(row.owner_id, "compile", (m) =>
-      m.compileCurriculum({
-        topic: row.topic,
-        intent: interp.intent,
-        goalText: interp.goal_text,
-        depth: interp.depth,
-        baseline: interp.baseline,
-        timeBudgetMinutesWeekly: interp.time_budget_minutes_weekly,
-        successCriteria: interp.success_criteria,
-        assumptions: interp.assumptions,
-        adjustment: state.adjustment,
-        linkContext: state.linkContext ?? interp.link_context ?? null,
-      }),
-    );
-    // Defense in depth: the adapter validated already; validate again before persisting.
-    state = withLinks(state, null, info.sources);
-    row = { ...row, state_json: state };
-    const checked = validateCurriculum(curriculum);
-    if (!checked.ok) throw new AppError("model_invalid_output", "The generated plan was not usable. Please retry.", true);
-    return await save(t, row, { status: "ready", proposal_json: { curriculum: checked.value, interpretation: interp, modelInfo: info }, last_error: null });
-  } catch (err) {
-    if (!(err instanceof AppError) || !(err.retryable || err.code === "rate_limited")) throw err;
-    await track(row.owner_id, "model_error", { op: "draft_advance", code: err.code });
-    return await save(t, row, { state_json: state, last_error: { code: err.code, message: err.message, retryable: err.retryable } });
-  }
-}
 
 export const GUEST_COURSE_LIMIT = 1;
 
@@ -231,14 +259,11 @@ export async function createDraft(ownerId: string, topic: string, idempotencyKey
     on conflict (owner_id, idempotency_key) do nothing returning id`;
   if (created.length) await track(ownerId, "course_draft_started", {});
   const [existing] = await db()<{ id: string }[]>`select id from course_drafts where owner_id = ${ownerId} and idempotency_key = ${idempotencyKey}`;
-  return tx(async (t) => draftView(await advance(t, await loadForUpdate(t, existing.id, ownerId))));
+  return draftView(await advanceDraft(ownerId, existing.id));
 }
 
 export async function getDraft(ownerId: string, draftId: string): Promise<CourseDraftView> {
-  const [row] = await db()<(Omit<DraftRow, "last_error"> & { last_error: string | null })[]>`
-    select * from course_drafts where id = ${draftId} and owner_id = ${ownerId}`;
-  if (!row) throw notFound("Course draft");
-  return draftView({ ...row, last_error: parseError(row.last_error) });
+  return draftView(await readDraft(ownerId, draftId));
 }
 
 export async function answerDraft(
@@ -246,9 +271,10 @@ export async function answerDraft(
   draftId: string,
   input: { answer?: string; startNow?: boolean; expectedVersion: number; idempotencyKey: string },
 ): Promise<CourseDraftView> {
-  return tx(async (t) => {
-    let row = await loadForUpdate(t, draftId, ownerId);
-    if (row.state_json.processedKeys.includes(input.idempotencyKey)) return draftView(row); // duplicate submit
+  // Record the answer in a short transaction; the model runs afterwards with no lock held.
+  await tx(async (t) => {
+    const row = await loadForUpdate(t, draftId, ownerId);
+    if (row.state_json.processedKeys.includes(input.idempotencyKey)) return; // duplicate submit: just wait for the result below
     if (row.status === "converted") throw conflict("This course has already been created.", { draft: draftView(row) });
     if (row.version !== input.expectedVersion) throw conflict("This setup changed in another tab. Showing the latest.", { draft: draftView(row) });
     const s = row.state_json;
@@ -262,14 +288,14 @@ export async function answerDraft(
       state = { ...s, pending: null, answers: [...s.answers, { ...s.pending, answer }], processedKeys };
       await track(ownerId, "clarification_answered", { field: s.pending.field, usedQuickReply: s.pending.options.includes(answer) }, t);
     }
-    row = await save(t, row, { state_json: state, last_error: null });
-    return draftView(await advance(t, row));
+    await save(t, row, { state_json: state, last_error: null });
   });
+  return draftView(await advanceDraft(ownerId, draftId));
 }
 
 /** "Back": reopen the last answered question and invalidate everything derived from it. */
 export async function backDraft(ownerId: string, draftId: string, expectedVersion: number): Promise<CourseDraftView> {
-  return tx(async (t) => {
+  await tx(async (t) => {
     const row = await loadForUpdate(t, draftId, ownerId);
     if (row.status === "converted") throw conflict("This course has already been created.");
     if (row.version !== expectedVersion) throw conflict("This setup changed in another tab. Showing the latest.", { draft: draftView(row) });
@@ -287,24 +313,22 @@ export async function backDraft(ownerId: string, draftId: string, expectedVersio
     } else {
       throw conflict("Nothing to go back to.");
     }
-    const saved = await save(t, row, { state_json: state, status: "collecting", proposal_json: null, last_error: null });
-    return draftView(state.pending ? saved : await advance(t, saved));
+    await save(t, row, { state_json: state, status: "collecting", proposal_json: null, last_error: null });
   });
+  return draftView(await advanceDraft(ownerId, draftId)); // no-op when a question is open again
 }
 
 /** Generate or retry the proposal (also used for "Adjust" with a free-text adjustment). */
 export async function proposeDraft(ownerId: string, draftId: string, input: { adjustment?: string; expectedVersion: number }): Promise<CourseDraftView> {
-  return tx(async (t) => {
-    let row = await loadForUpdate(t, draftId, ownerId);
-    if (row.status === "converted") return draftView(row);
+  await tx(async (t) => {
+    const row = await loadForUpdate(t, draftId, ownerId);
+    if (row.status === "converted") return;
     if (row.version !== input.expectedVersion) throw conflict("This setup changed in another tab. Showing the latest.", { draft: draftView(row) });
     if (input.adjustment?.trim()) {
-      row = await save(t, row, { state_json: { ...row.state_json, adjustment: input.adjustment.trim().slice(0, 500) }, status: "collecting", proposal_json: null });
-    } else if (row.status === "ready") {
-      return draftView(row);
+      await save(t, row, { state_json: { ...row.state_json, adjustment: input.adjustment.trim().slice(0, 500) }, status: "collecting", proposal_json: null });
     }
-    return draftView(await advance(t, row));
   });
+  return draftView(await advanceDraft(ownerId, draftId)); // no-op when already ready or converted
 }
 
 /** Transactionally creates the course, goal v1, concept graph and curriculum v1. Exactly once per draft. */
