@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getPageUser } from "@/lib/auth/server";
+import { emailEnabled } from "@/lib/email/mailer";
 import { AuthForm } from "@/components/auth/auth-form";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           Ada
         </Link>
         <p className="mb-8 text-muted">Ada teaches what no one bothered to make a course for.</p>
-        <AuthForm initialMode={sp.mode === "signup" || (user?.isGuest && sp.mode !== "signin") ? "signup" : "signin"} isGuest={!!user?.isGuest} next={next} />
+        <AuthForm initialMode={sp.mode === "signup" || (user?.isGuest && sp.mode !== "signin") ? "signup" : "signin"} isGuest={!!user?.isGuest} next={next} canReset={emailEnabled()} />
         {!user && (
           <p className="mt-6 text-center text-sm">
             <Link href="/app" className="text-muted underline-offset-2 hover:text-ink hover:underline">

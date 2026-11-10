@@ -1,0 +1,60 @@
+name: Model evaluation
+
+# Runs the real-model evaluation (evals/README.md) by hand. Spends model budget:
+# roughly $0.50 per run with the default OpenAI models, more with Claude.
+#
+# Needs repository secrets (Settings → Secrets and variables → Actions):
+#   OPENAI_API_KEY and/or ANTHROPIC_API_KEY
+# With both set, the other provider's model is used as the judge.
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider whose models are evaluated
+        type: choice
+        options: [anthropic, openai]
+        default: anthropic
+      part:
+        description: Which part to run
+        type: choice
+        options: [all, grading, generation]
+        default: all
+      reps:
+        description: Times each answer is graded (part 1)
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run evaluation
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROVIDER: ${{ inputs.provider }}
+          PART: ${{ inputs.part }}
+          REPS: ${{ inputs.reps }}
+        run: |
+          JUDGE=openai; [ "$PROVIDER" = "openai" ] && [ -n "$ANTHROPIC_API_KEY" ] && JUDGE=anthropic
+          [ -z "$OPENAI_API_KEY" ] && JUDGE=anthropic
+          npm run eval:model -- --provider "$PROVIDER" --part "$PART" --reps "$REPS" --judge-provider "$JUDGE" --run "ci-$PROVIDER"
+      - name: Publish report
+        if: always()
+        env:
+          PROVIDER: ${{ inputs.provider }}
+        run: cat "evals/runs/ci-$PROVIDER/report.md" >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-${{ inputs.provider }}
+          path: evals/runs/

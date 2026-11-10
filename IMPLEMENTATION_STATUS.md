@@ -8,7 +8,7 @@ Last updated: 2026-11-07. Legend: ✅ done and tested · 🟡 partial · ⛔ blo
 |---|---|
 | `npm run typecheck` | ✅ pass |
 | `npm run lint` | ✅ pass (0 errors, 0 warnings) |
-| `npm test` | ✅ 127/127: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
+| `npm test` | ✅ 136/136: unit (policies, adapter, DTO, components) + integration (route handlers against Postgres) |
 | `npm run build` | ✅ pass |
 | `npm run test:e2e` | ✅ 8/8 Playwright: guest-first journey, curiosity journey, goal journey, sidebar and deletion, failure/retry, keyboard-only, mobile drawer, cross-user URL |
 | `npm run smoke:model` (real model) | ⛔ **not run** for either provider. No OpenAI or Anthropic key is available here, and this sandbox's network policy blocks `api.openai.com`. The adapter is covered by transport-level tests (valid output, malformed JSON → repair, cyclic graph → repair → clean failure, 429/5xx retry, timeout, non-transient error, kind enforcement). **Run it before relying on real-model quality.** |
@@ -18,6 +18,21 @@ All E2E and integration runs use the **deterministic development model**. They p
 ## Guest mode (try before sign-up)
 - ✅ Start a course with no account; guest banner; one-course limit and guest model budget (`account_required` → account dialog); sign-up keeps guest data in place; sign-in moves it into the existing account; per-IP guest creation limit; stale guest purge; guest data deletion. Covered by `tests/integration/guest.test.ts` and `tests/e2e/guest.spec.ts`.
 - 🟡 Stale guests are purged only when new guests arrive (no scheduled job yet).
+
+## Real-model evaluation (D22)
+- ✅ `npm run eval:model`: 50 hand-labelled grading cases and 20 generation topics, run against the real OpenAI models. Baseline in `evals/baselines/`. It found and led to fixes for: "start now" being ignored, a learner answer escaping its data wrapper, and lenient grading of misconceptions.
+- 🟡 Not yet run for Claude (needs the `Model evaluation` GitHub workflow with `ANTHROPIC_API_KEY` as a repository secret). Hints, follow-ups, reviews and plan revisions are not covered. Labels have had no second reviewer.
+- 🟡 Known content-quality limit with the default OpenAI models: roughly 1 in 20 explanations had a major factual error and one earlier run had a wrong answer key. See D22.
+
+## Email: password reset and review reminders (D21)
+- ✅ Password reset by emailed single-use link; email confirmation before any reminder; hourly review reminders (opt-in, confirmed address, quiet hours, one a day, weekly limit, skipped right after studying); unsubscribe page and one-click unsubscribe header. Covered by `tests/integration/email.test.ts` with an in-memory outbox.
+- 🟡 Nothing is sent until `RESEND_API_KEY` and `EMAIL_FROM` are set in Vercel. Reminders also need `CRON_SECRET` in Vercel and the same value plus `APP_URL` in GitHub Actions. Not yet run against the live Resend API.
+
+## Refinements (D20)
+- ✅ Sign-in attempt limit; scheduled cleanup endpoint + Vercel cron; lesson length from time budget; new course opens into its first step; pasted background in setup; usage queries in `docs/METRICS.md`. Covered by `tests/integration/refinements.test.ts`, unit tests and the E2E journeys.
+- 🟡 Web-checked explanations with sources: built and tested with a fake Claude client, **off by default** (`ADA_WEB_GROUNDING=on` to enable). Not yet run against the live API.
+- 🟡 The cron job runs only once `CRON_SECRET` is set in Vercel.
+- ⏭️ Not built yet: streaming responses, evidence-driven re-planning, PDF upload, splitting `sessions.ts`.
 
 ## Reliability under concurrency (D19)
 - ✅ Model calls no longer run inside database transactions; short-lived claims prevent duplicate calls; apply steps re-check state. Covered by `tests/integration/connections.test.ts` (no open transaction during model calls; 8 concurrent setups on a 3-connection pool finish; a double click makes one model call), which fails against the previous code.
@@ -67,7 +82,7 @@ Review items: one active per concept, +1 day after the first meaningful attempt,
 - ✅ Authorization regression suite. Idempotency under concurrent requests (draft create, answer, convert, attempt, next).
 - ✅ Accessibility: labeled controls, radiogroup semantics, focus moves on transitions (heading or Continue), Escape closes dialogs and drawer, ≥44px targets, reduced motion, no horizontal scroll at 390px.
 - 🟡 **No rate limiting on auth endpoints.** Sign-in brute-force throttling should come before a public launch.
-- 🟡 No password reset or email verification (no mail provider configured).
+- ✅ Password reset and email confirmation (D21), once Resend is configured.
 - 🟡 Expired auth sessions are not garbage-collected (they are ignored once expired).
 
 ## P0 Definition of Done
@@ -93,13 +108,12 @@ Review items: one active per concept, +1 day after the first meaningful attempt,
 | No fabricated proficiency metric or citations; mocks never presented as AI | ✅ |
 
 ## Not implemented / deferred
-- ⏭️ Reminders and notifications (P1). Preferences are stored, default off, and email consent requires reminders. Nothing is ever sent.
+- ⏭️ Push or in-app notifications. Email reminders are built (D21).
 - ⏭️ Source-grounded retrieval and citations (P1). The `source_references` table exists, but nothing writes to it. Content is labeled AI-generated, and prompts forbid invented URLs.
 - ⏭️ Code execution sandbox, graph visualization, adaptive difficulty beyond the planner's difficulty steps, cross-course mentor recommendations (P1).
 - ⏭️ Google sign-in.
 
 ## Suggested next steps
-1. Run `npm run smoke:model` with a real key. Review the output quality for the four topics and tune the prompts in `src/lib/ai/prompts`.
-2. Add sign-in throttling, password reset and email verification (pick a mail provider).
+1. Use `npm run eval:model` to compare newer models against the defaults (accuracy, speed, cost), then run it for Claude.
 3. Decide between Supabase (RLS) and staying on plain Postgres. If Supabase, port the migrations and add policies.
-4. P1: reminder delivery (cron worker over `review_items` + `notification_log`, quiet hours, daily cap), plus retrieval with verified citations.
+4. P1: retrieval with verified citations.

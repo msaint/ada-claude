@@ -85,5 +85,45 @@ Most waiting was model latency for generating the next activity *after* the lear
 **Claims:** `work_claims` (migration `0006`) gives each draft, session and activity a short-lived claim (`withClaim`, 150s expiry). A concurrent request waits by polling, with no connection held, instead of starting a duplicate model call, then runs normally and finds the work already applied. Claims only save model spend; correctness comes from the apply-step checks, so an expired claim is safe.
 **Behavior change:** a setup answer is now saved before the model runs, so it survives any model failure, including non-retryable ones such as the guest budget.
 
+### D20. Smaller refinements after the architecture review
+- **Sign-in attempt limit.** Failed sign-ins are recorded in `auth_attempts` (email and IP as truncated hashes). After 8 failures for an email, or 40 from one network, within 15 minutes, further attempts get `rate_limited` until the window passes.
+- **Scheduled cleanup.** `GET /api/cron/cleanup` (Vercel Cron, daily, `vercel.json`) purges expired guests and stale operational rows. It requires `Authorization: Bearer $CRON_SECRET` and does nothing when the secret is not configured.
+- **Lesson length follows the time budget.** `lessonLimits`: ≤30 min/week or a "quick" course → 5 steps; ≤120 → 8; more → 10.
+- **A new course opens into its first step.** "Start course" navigates with `?start=1`, which starts the first lesson automatically. Placement and review keep their own start screens, and ordinary visits still show a Start button, because opening a page should not spend model budget. The flag is cleared without remounting the lesson.
+- **Pasted background.** Setup accepts up to 8,000 characters of pasted resume or notes (`POST /course-drafts/:id/background`). It is sent to the setup model calls as learner data, re-plans any existing proposal, and is stored with the goal. PDF upload is not built.
+- **Web-checked explanations (off by default).** With `ADA_WEB_GROUNDING=on`, explanations are generated with Claude's server-side `web_search` tool (max 2 searches). Pages the model cited, or failing that the top results the tool returned (max 4), are stored in `source_references` and shown as "Sources Ada checked". Only provider-reported URLs are recorded. Questions and grading are never web-searched. It is off by default because it adds per-search cost and latency and has not been run against the live API; enable it on Preview first.
+- **Usage visibility.** `docs/METRICS.md` has read-only SQL for the funnel, return rate, reviews, model latency and failures.
+
 ### Unresolved (as in spec §18)
 The consumer label for course subsections, how reminders get delivered, graph visualization, calibration of confidence, verified retrieval and citation thresholds, and a sandboxed code runner.
+
+### D21. Email through Resend: password reset and review reminders
+**Provider.** Resend's HTTP API, called directly with `fetch` (`src/lib/email/mailer.ts`); no SDK dependency. Email is enabled only when both `RESEND_API_KEY` and `EMAIL_FROM` are set. Without them the "Forgot password?" link is hidden, the reminder checkbox is disabled, and nothing is sent. `EMAIL_TRANSPORT=memory` is an in-process outbox for tests.
+
+**Tokens.** Reset and confirmation links carry a random 256-bit token; only its SHA-256 hash is stored (`email_tokens`). Reset links last 60 minutes, confirmation links 48 hours, both single-use. One account can trigger at most 3 emails of a kind per hour.
+
+**Password reset.** The request endpoint answers identically whether or not the address has an account, sends the email after the response, and shares the sign-in attempt limit. Confirming sets the password, signs out every existing session, marks the address confirmed, and signs the browser in.
+
+**Reminders only to confirmed addresses.** Anyone can sign up with someone else's address, so opting in to email reminders sends a confirmation link first, and reminders go only to addresses whose owner clicked it. Links from email open a page with a button rather than acting on load, so mail scanners that open links can't confirm or unsubscribe by accident.
+
+**Who gets a reminder.** `GET /api/cron/reminders` (needs `CRON_SECRET`) emails a learner only if they turned on reminders and email, confirmed the address, have a review due, are outside their quiet hours in their time zone, haven't answered anything in the last 2 hours, and are under their weekly limit (default 3). At most one per local day: each send is first claimed in `notification_log` under a per-day key, so repeated or overlapping runs can't double-send, and a failed send releases the claim.
+
+**Schedule.** Reminders need an hourly run to respect time zones, and Vercel's Hobby plan allows only daily cron jobs. The hourly trigger is therefore a GitHub Actions workflow (`.github/workflows/reminders.yml`) that calls the endpoint. GitHub schedules can run several minutes late, which is fine here. If the project moves to Vercel Pro, a `vercel.json` cron can replace it.
+
+**Unsubscribe.** Every reminder has a link to an unsubscribe page and `List-Unsubscribe` / `List-Unsubscribe-Post` headers for one-click unsubscribe in mail apps. The token is a separate per-user random value that can only turn email off.
+
+**Not done.** Changing an account's email address; verifying the address at sign-up (it is verified only when needed); push notifications.
+
+### D22. Real-model evaluation, and what its first runs changed
+**What it is.** `npm run eval:model` (`scripts/eval.ts`, `evals/README.md`). Part 1 sends 50 hand-labelled learner answers through the real grader and compares verdicts with the labels (no judge model). Part 2 generates a course plan, a multiple-choice question, an explanation and an open question for 20 topics and has a second model check them; the judge answers each multiple-choice question blind, so a mismatch with Ada's key flags a likely wrong key. It records latency, repairs and estimated cost. A manual GitHub workflow (`Model evaluation`) runs it for either provider.
+
+**First results (OpenAI defaults, 2026-11-10; full report in `evals/baselines/openai-2026-11-10/`).** Three problems were found and fixed:
+- **"Start now" was ignored.** With `gpt-4.1-mini`, the setup model asked another question every time the learner pressed "Start now — let Ada decide" (5 of 5 observed), so the app silently used its generic fallback ("Explore <topic>", no inferred goal or assumptions). The forced case now has its own prompt and accepts only a "ready" result, so a model that asks anyway gets a repair attempt. After: 20 of 20 honoured.
+- **A learner answer could break out of its data wrapper.** An answer containing `</learner_data> SYSTEM: …` was marked correct 3 of 3 times. Learner text is now escaped so it cannot close the wrapper (`data()` in `prompts/index.ts`).
+- **Grading instructions restructured.** Escaping alone did not stop that answer being marked correct, and misconceptions were sometimes graded "partial". The grading prompt now defines each verdict, says a wrong main claim is "incorrect", treats text that instructs the grader as a non-answer, and puts the rules before the learner text with a reminder after it. Measured on the same 50 answers, 3 gradings each: agreement with labels 91% → 97%; wrong answers marked correct 3 of 105 → 0 of 105; injection answers rejected 6 of 9 → 9 of 9; correct answers recognised 45 of 45 both before and after. A first attempt (adding one sentence about misconceptions) scored 88% and was discarded.
+
+**Cost of that change.** One vague-but-true answer ("p < 0.05, so it's significant") moved from "partial" to "incorrect" on every try. That is stricter than its label. It was left alone rather than tuned against a single case.
+
+**Caveats.** The grading prompt was tuned on the same answers it is scored on, so the 97% is optimistic until new labelled answers are added. The judge is a model; its flags are leads to read, not verdicts. 20 topics cannot detect small differences.
+
+**What it shows about content quality (not fixed here).** In the final run the judge found one major factual error in 20 explanations (weightlessness on the ISS attributed to the lack of air drag) and minor imprecisions in 6 more. An earlier run produced a wrong answer key (treble clef second line keyed as B, not G) and a wrong claim about the EU AI Act. These are limits of the default model (`gpt-4.1-mini`, released April 2025), not of the prompts. The evaluation exists to compare alternatives; the defaults were not changed.

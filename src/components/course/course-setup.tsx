@@ -7,7 +7,7 @@ import { api, ApiError, newKey } from "@/lib/client/api";
 import type { CourseDraftView } from "@/lib/schemas/dto";
 import { Button, InlineError, Spinner } from "@/components/ui/primitives";
 
-type Pending = null | "answer" | "back" | "propose" | "convert" | "adjust";
+type Pending = null | "answer" | "back" | "propose" | "convert" | "adjust" | "background";
 
 export function CourseSetup({ initial }: { initial: CourseDraftView }) {
   const router = useRouter();
@@ -17,6 +17,8 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
   const [error, setError] = useState<{ message: string; retry?: () => void } | null>(null);
   const [adjusting, setAdjusting] = useState(false);
   const [adjustment, setAdjustment] = useState("");
+  const [bgOpen, setBgOpen] = useState(false);
+  const [bgText, setBgText] = useState(initial.background ?? "");
   const answerKey = useRef(newKey());
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -64,7 +66,8 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
     setError(null);
     try {
       const r = await api<{ courseId: string }>(`/course-drafts/${draft.id}/convert`, { body: {} });
-      router.push(`/app/courses/${r.courseId}`);
+      // Starting a course is a clear signal: open straight into its first step.
+      router.push(`/app/courses/${r.courseId}?start=1`);
       router.refresh();
     } catch (e) {
       setError({ message: e instanceof ApiError ? e.message : "Couldn't create the course.", retry: startCourse });
@@ -74,7 +77,7 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
 
   const q = draft.nextQuestion;
   const learnerTurns = draft.turns.slice(1);
-  const thinking = pending === "answer" || pending === "propose" || pending === "adjust" || pending === "back";
+  const thinking = pending === "answer" || pending === "propose" || pending === "adjust" || pending === "back" || pending === "background";
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-10 md:py-16">
@@ -228,6 +231,45 @@ export function CourseSetup({ initial }: { initial: CourseDraftView }) {
                 </Button>
               )}
             </div>
+          )}
+        </section>
+      )}
+
+      {draft.state !== "converted" && !thinking && (
+        <section className="mt-8 text-sm" aria-label="Your background">
+          {bgOpen ? (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                run("background", () => api(`/course-drafts/${draft.id}/background`, { body: { text: bgText, expectedVersion: draft.version } })).then((d) => d && setBgOpen(false));
+              }}
+              className="space-y-2"
+            >
+              <label htmlFor="background" className="block font-medium text-ink">
+                Your background
+              </label>
+              <p className="text-muted">Paste a resume, bio or notes. Ada uses it to skip what you already know. Leave out anything sensitive.</p>
+              <textarea
+                id="background"
+                rows={6}
+                maxLength={8000}
+                value={bgText}
+                onChange={(e) => setBgText(e.target.value)}
+                className="w-full rounded-xl border border-line-strong bg-paper px-4 py-3 leading-relaxed text-ink focus:border-muted focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <Button type="submit" size="sm" variant="primary" disabled={bgText.trim() === (draft.background ?? "")}>
+                  {draft.background ? "Update background" : "Use this background"}
+                </Button>
+                <Button type="button" size="sm" variant="quiet" onClick={() => { setBgOpen(false); setBgText(draft.background ?? ""); }}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <button onClick={() => setBgOpen(true)} className="min-h-11 text-muted underline underline-offset-2 hover:text-ink">
+              {draft.background ? "Background added — edit" : "Add your background (paste a resume or notes)"}
+            </button>
           )}
         </section>
       )}

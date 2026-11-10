@@ -27,7 +27,7 @@ test("curiosity journey: topic → one-at-a-time setup → course → assessment
   await page.waitForURL(/\/app\/courses\//);
   await expect(sidebarCourses(page)).toHaveCount(1);
 
-  await page.getByRole("button", { name: "Start", exact: true }).click();
+  // The new course opens straight into its first step.
   await expect(page.getByText("Make a prediction")).toBeVisible();
   await page.getByRole("radio").first().check();
   await page.getByRole("button", { name: "Check answer" }).click();

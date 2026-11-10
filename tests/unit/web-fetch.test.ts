@@ -141,3 +141,49 @@ describe("routing calls with links to the provider that can fetch", () => {
     expect(seen).toEqual(["anthropic", "openai", "openai"]);
   });
 });
+
+import { searchSources } from "@/lib/ai/anthropic-model";
+import { lessonLimits } from "@/lib/learning/next-action";
+
+describe("web search for explanations", () => {
+  const result = (items: { url: string; title: string }[]): Block => ({ type: "web_search_tool_result", tool_use_id: "s1", content: items.map((x) => ({ type: "web_search_result", encrypted_content: "", page_age: null, ...x })) }) as unknown as Block;
+  const cited = (t: string, url: string): Block => ({ type: "text", text: t, citations: [{ type: "web_search_result_location", url, title: "Cited page", cited_text: "", encrypted_index: "" }] }) as unknown as Block;
+  const explanation = JSON.stringify({ kind: "explanation", bodyMarkdown: "Tides come from gravity." });
+
+  it("declares the search tool only when asked, and takes the JSON after the search blocks", async () => {
+    const { client, calls } = fakeClient([{ content: [text("Checking."), result([{ url: "https://a.example/1", title: "A" }]), text(explanation)], stop_reason: "end_turn" }]);
+    const r = await new AnthropicTransport("k", { client }).complete({ ...req(false), webSearch: true });
+    expect(calls[0].tools).toEqual([{ type: "web_search_20260209", name: "web_search", max_uses: 2 }]);
+    expect(JSON.parse(r.text).kind).toBe("explanation");
+    expect(r.sources).toEqual([{ url: "https://a.example/1", title: "A", retrievedAt: null }]);
+  });
+  it("prefers cited pages over raw results, caps the list, and ignores non-http URLs and errors", () => {
+    const many = result(Array.from({ length: 9 }, (_, i) => ({ url: `https://r.example/${i}`, title: `R${i}` })));
+    expect(searchSources([many])).toHaveLength(4);
+    expect(searchSources([many, cited("x", "https://cited.example/p")]).map((s) => s.url)).toEqual(["https://cited.example/p"]);
+    const err = { type: "web_search_tool_result", tool_use_id: "s", content: { type: "web_search_tool_result_error", error_code: "unavailable" } } as unknown as Block;
+    expect(searchSources([err, result([{ url: "javascript:alert(1)", title: "bad" }])])).toEqual([]);
+  });
+  it("the adapter searches only for explanations with grounding on, and routes them to Anthropic", async () => {
+    const t = new Recorder(true, explanation);
+    (t as unknown as { supportsWebSearch: boolean }).supportsWebSearch = true;
+    const m = new LLMLearningModel(t, models, { timeoutMs: 10, provider: "anthropic" });
+    const concept = { slug: "x", title: "X", description: "", assessmentCriteria: ["c"], prerequisites: [] };
+    const base = { topic: "t", intent: "curiosity" as const, goalText: "g", baseline: "", timeBudgetMinutesWeekly: null, concept, purpose: "teach" as const, difficulty: 1 as const, recentEvidence: [], misconceptions: [], priorPrompts: [], assistanceUsed: 0 };
+    await m.generateActivity({ ...base, kind: "explanation", webGrounding: true });
+    await m.generateActivity({ ...base, kind: "explanation" });
+    expect(t.calls.map((c) => !!c.webSearch)).toEqual([true, false]);
+    expect(t.calls[0].user).toContain("web_search tool is available");
+    expect(t.calls[1].user).not.toContain("web_search tool is available");
+  });
+});
+
+describe("lesson length", () => {
+  it("scales with weekly time and depth", () => {
+    expect(lessonLimits(null, "standard").lesson).toBe(8);
+    expect(lessonLimits(15, "standard").lesson).toBe(5);
+    expect(lessonLimits(60, "standard").lesson).toBe(8);
+    expect(lessonLimits(180, "deep").lesson).toBe(10);
+    expect(lessonLimits(180, "quick").lesson).toBe(5);
+  });
+});

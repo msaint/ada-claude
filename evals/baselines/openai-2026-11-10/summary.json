@@ -1,0 +1,174 @@
+{
+  "run": "baseline-openai",
+  "at": "2026-11-10T05:58:12.172Z",
+  "modelUnderTest": "openai",
+  "judge": "openai/gpt-4.1",
+  "cases": {
+    "planned": 170,
+    "scored": 170,
+    "failed": 0
+  },
+  "metrics": {
+    "grading": {
+      "agreement": {
+        "k": 145,
+        "n": 150,
+        "pct": 97,
+        "text": "145/150 (97%, 95% CI 92–99%)"
+      },
+      "falsePass": {
+        "k": 0,
+        "n": 105,
+        "pct": 0,
+        "text": "0/105 (0%, 95% CI 0–4%)"
+      },
+      "falseFail": {
+        "k": 0,
+        "n": 45,
+        "pct": 0,
+        "text": "0/45 (0%, 95% CI 0–8%)"
+      },
+      "correctRecognised": {
+        "k": 45,
+        "n": 45,
+        "pct": 100,
+        "text": "45/45 (100%, 95% CI 92–100%)"
+      },
+      "partialRecognised": {
+        "k": 31,
+        "n": 39,
+        "pct": 79,
+        "text": "31/39 (79%, 95% CI 64–89%)"
+      },
+      "incorrectRecognised": {
+        "k": 66,
+        "n": 66,
+        "pct": 100,
+        "text": "66/66 (100%, 95% CI 94–100%)"
+      },
+      "injectionResisted": {
+        "k": 9,
+        "n": 9,
+        "pct": 100,
+        "text": "9/9 (100%, 95% CI 70–100%)"
+      },
+      "uncertain": {
+        "k": 0,
+        "n": 150,
+        "pct": 0,
+        "text": "0/150 (0%, 95% CI 0–2%)"
+      }
+    },
+    "gradingUnstable": {
+      "answers": 50,
+      "unstable": [
+        "where-having/with-groupby"
+      ]
+    },
+    "generation": {
+      "startNowHonoured": {
+        "k": 20,
+        "n": 20,
+        "pct": 100,
+        "text": "20/20 (100%, 95% CI 84–100%)"
+      },
+      "mcKeyAgrees": {
+        "k": 20,
+        "n": 20,
+        "pct": 100,
+        "text": "20/20 (100%, 95% CI 84–100%)"
+      },
+      "mcUnambiguous": {
+        "k": 19,
+        "n": 20,
+        "pct": 95,
+        "text": "19/20 (95%, 95% CI 76–99%)"
+      },
+      "mcTestsUnderstanding": {
+        "k": 20,
+        "n": 20,
+        "pct": 100,
+        "text": "20/20 (100%, 95% CI 84–100%)"
+      },
+      "mcLengthCue": {
+        "k": 1,
+        "n": 20,
+        "pct": 5,
+        "text": "1/20 (5%, 95% CI 1–24%)"
+      },
+      "explanationNoMajorError": {
+        "k": 19,
+        "n": 20,
+        "pct": 95,
+        "text": "19/20 (95%, 95% CI 76–99%)"
+      },
+      "explanationNoError": {
+        "k": 13,
+        "n": 20,
+        "pct": 65,
+        "text": "13/20 (65%, 95% CI 43–82%)"
+      },
+      "explanationOk": {
+        "k": 19,
+        "n": 20,
+        "pct": 95,
+        "text": "19/20 (95%, 95% CI 76–99%)"
+      },
+      "openOk": {
+        "k": 20,
+        "n": 20,
+        "pct": 100,
+        "text": "20/20 (100%, 95% CI 84–100%)"
+      },
+      "planOk": {
+        "k": 18,
+        "n": 20,
+        "pct": 90,
+        "text": "18/20 (90%, 95% CI 70–97%)"
+      }
+    }
+  },
+  "latencyByOperation": [
+    {
+      "op": "evaluate",
+      "models": "gpt-4.1-mini",
+      "calls": 150,
+      "p50s": 1.732,
+      "p90s": 2.086,
+      "repaired": 0,
+      "outTokens": 233
+    },
+    {
+      "op": "clarify",
+      "models": "gpt-4.1-mini",
+      "calls": 20,
+      "p50s": 1.632,
+      "p90s": 1.903,
+      "repaired": 0,
+      "outTokens": 210
+    },
+    {
+      "op": "compile",
+      "models": "gpt-4.1",
+      "calls": 20,
+      "p50s": 4.421,
+      "p90s": 4.895,
+      "repaired": 0,
+      "outTokens": 892
+    },
+    {
+      "op": "activity",
+      "models": "gpt-4.1-mini",
+      "calls": 60,
+      "p50s": 2.278,
+      "p90s": 2.9,
+      "repaired": 2,
+      "outTokens": 338
+    }
+  ],
+  "costUsd": {
+    "modelUnderTest": 0.398,
+    "judge": 0.125,
+    "unpricedModels": []
+  }
+}

@@ -79,6 +79,17 @@ export type PlannerDecision = PlannedActivity | { action: "complete"; reason: st
 
 const DEFAULT_LIMITS = { lesson: 8, review: 3, perConcept: 5 };
 export const PLACEMENT_MAX = 5;
+
+/**
+ * Lesson length follows what the learner told Ada at setup: a small weekly
+ * budget or a "quick" course gets shorter sessions, a large budget longer ones.
+ */
+export function lessonLimits(timeBudgetMinutesWeekly: number | null | undefined, depth: string | null | undefined) {
+  let lesson = DEFAULT_LIMITS.lesson;
+  if (timeBudgetMinutesWeekly != null) lesson = timeBudgetMinutesWeekly <= 30 ? 5 : timeBudgetMinutesWeekly <= 120 ? 8 : 10;
+  if (depth === "quick") lesson = Math.min(lesson, 5);
+  return { ...DEFAULT_LIMITS, lesson };
+}
 export const FINAL_MAX_CONCEPTS = 8;
 const ASSESSABLE: ActivityKind[] = ["multiple_choice", "free_response"];
 /** Misses on these get a Socratic probe rather than an immediate answer. */

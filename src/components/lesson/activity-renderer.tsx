@@ -45,6 +45,19 @@ export function ActivityView(props: {
         <>
           {a.title && <h2 className="mb-4 text-xl font-semibold tracking-tight">{a.title}</h2>}
           <Markdown>{a.bodyMarkdown}</Markdown>
+          {a.sources && a.sources.length > 0 && (
+            <p className="mt-4 text-sm text-muted">
+              Sources Ada checked:{" "}
+              {a.sources.map((src, i) => (
+                <span key={src.url}>
+                  {i > 0 && " · "}
+                  <a href={src.url} target="_blank" rel="noopener noreferrer nofollow" className="text-ink-soft underline underline-offset-2 hover:text-ink">
+                    {src.title?.trim() || hostOf(src.url)}
+                  </a>
+                </span>
+              ))}
+            </p>
+          )}
         </>
       ) : (
         <div id={promptId}>
@@ -128,4 +141,12 @@ export function ActivityView(props: {
       )}
     </article>
   );
+}
+
+function hostOf(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "source";
+  }
 }

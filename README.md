@@ -103,4 +103,4 @@ Step-by-step for Vercel + Supabase + OpenAI/Anthropic: [`docs/DEPLOYMENT.md`](do
 
 ## Privacy
 
-Ada sends your topic, setup answers and lesson answers to the model provider. It never sends your email or name. Model usage is logged as metadata only (operation, model, latency, tokens). Telemetry events contain no answer text. Users can export their data (`GET /api/v1/account/export`), delete individual courses (cascading), and delete their account (cascading) from Settings. Reminders are off by default and require explicit opt-in.
+Ada sends your topic, setup answers and lesson answers to the model provider. It never sends your email or name. Model usage is logged as metadata only (operation, model, latency, tokens). Telemetry events contain no answer text. Users can export their data (`GET /api/v1/account/export`), delete individual courses (cascading), and delete their account (cascading) from Settings. Reminders are off by default and require explicit opt-in; email reminders go only to an address the learner has confirmed, and every one has an unsubscribe link.

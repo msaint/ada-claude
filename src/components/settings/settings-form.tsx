@@ -14,6 +14,8 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
   const [error, setError] = useState<string | null>(null);
   const [delOpen, setDelOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [savedOptIn, setSavedOptIn] = useState(initial.emailOptIn);
+  const [verifyNote, setVerifyNote] = useState<string | null>(null);
   const zones = supportedZones();
   const confirmWord = p.isGuest ? "delete" : (p.email ?? "");
 
@@ -27,12 +29,23 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
         body: { displayName: p.displayName?.trim() || null, timezone: p.timezone, remindersEnabled: p.remindersEnabled, emailOptIn: p.emailOptIn, quietHours: p.quietHours },
       });
       setP(r.preferences);
+      setSavedOptIn(r.preferences.emailOptIn);
       setSaved(true);
       router.refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't save.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resendVerification() {
+    setVerifyNote(null);
+    try {
+      const r = await api<{ sent: boolean }>("/auth/verify-email/request", { body: {} });
+      setVerifyNote(r.sent ? "Sent. Check your inbox." : "Couldn't send another one right now. Try again in an hour.");
+    } catch (e) {
+      setVerifyNote(e instanceof ApiError ? e.message : "Couldn't send the email.");
     }
   }
 
@@ -49,6 +62,9 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
     }
   }
 
+  const canEmail = p.remindersEnabled && !p.isGuest && p.emailAvailable;
+  // Based on what's saved, so it doesn't appear before the confirmation email has gone out.
+  const needsConfirm = savedOptIn && p.emailOptIn && !p.emailVerified && canEmail;
   const input = "min-h-11 w-full rounded-lg border border-line-strong bg-paper px-3 focus:border-muted focus:outline-none";
   return (
     <div className="space-y-10">
@@ -86,9 +102,20 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
             <span>Remind me when reviews are due</span>
           </label>
           <label className="flex min-h-11 items-center gap-3">
-            <input type="checkbox" disabled={!p.remindersEnabled} checked={p.emailOptIn} onChange={(e) => setP({ ...p, emailOptIn: e.target.checked })} className="size-4" />
-            <span className={p.remindersEnabled ? "" : "text-muted"}>By email</span>
+            <input type="checkbox" disabled={!canEmail} checked={canEmail && p.emailOptIn} onChange={(e) => setP({ ...p, emailOptIn: e.target.checked })} className="size-4" />
+            <span className={canEmail ? "" : "text-muted"}>By email{p.email ? ` to ${p.email}` : ""}</span>
           </label>
+          {p.isGuest && <p className="text-xs text-muted">Email reminders need an account, so Ada has an address to send to.</p>}
+          {!p.isGuest && !p.emailAvailable && <p className="text-xs text-muted">Email isn&apos;t set up on this instance yet, so reminders can&apos;t be sent.</p>}
+          {needsConfirm && (
+            <p className="rounded-lg bg-accent-soft px-4 py-3 text-sm text-ink-soft" role="status">
+              Confirm your address to start receiving reminders: Ada sent a link to {p.email}.{" "}
+              <button type="button" onClick={resendVerification} className="font-medium text-accent-strong underline underline-offset-2">
+                Send it again
+              </button>
+              {verifyNote && <span className="mt-1 block">{verifyNote}</span>}
+            </p>
+          )}
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span>Quiet hours</span>
             <label className="sr-only" htmlFor="qh-start">Quiet hours start</label>
@@ -97,7 +124,7 @@ export function SettingsForm({ initial, devModel }: { initial: Preferences; devM
             <label className="sr-only" htmlFor="qh-end">Quiet hours end</label>
             <input id="qh-end" type="time" value={p.quietHours.end} onChange={(e) => setP({ ...p, quietHours: { ...p.quietHours, end: e.target.value } })} className="min-h-11 rounded-lg border border-line-strong px-2" />
           </div>
-          <p className="text-xs text-muted">Reminder delivery is not yet active in this version; your choices are stored and respected when it ships.</p>
+          <p className="text-xs text-muted">Ada won&apos;t email during quiet hours, or when you&apos;ve just been studying. Every email has a one-click way to stop them.</p>
         </section>
 
         {error && !delOpen && <InlineError message={error} />}

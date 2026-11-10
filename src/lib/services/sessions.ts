@@ -6,10 +6,10 @@ import { withClaim } from "@/lib/db/claims";
 import { AppError, conflict, invalid, notFound } from "@/lib/errors";
 import { callModel } from "@/lib/ai";
 import { usingMockModel } from "@/lib/env";
-import type { ActivityContext, ConceptBrief, ModelInfo } from "@/lib/ai/model-adapter";
+import type { ActivityContext, ConceptBrief, FetchedSource, ModelInfo } from "@/lib/ai/model-adapter";
 import type { ActivitySpec, EvaluationResult } from "@/lib/schemas/model";
 import type { ActivityFeedback, InlineError, LearnerActivity, SessionPhase, SessionSummary, SessionView } from "@/lib/schemas/dto";
-import { chooseNext, finalAssessmentConcepts, type PlannedActivity, type PlannerDecision, type SessionKind, type SessionStep } from "@/lib/learning/next-action";
+import { chooseNext, finalAssessmentConcepts, lessonLimits, type PlannedActivity, type PlannerDecision, type SessionKind, type SessionStep } from "@/lib/learning/next-action";
 import { computeMastery, type EvidenceRecord } from "@/lib/learning/mastery";
 import { initialReview, nextReview } from "@/lib/learning/review-scheduler";
 import { loadActiveGoal, loadConceptStates, loadCourse, MIN_CONCEPTS_FOR_PLACEMENT, type ConceptState, type CourseRow } from "./learning-state";
@@ -90,12 +90,12 @@ async function loadActivityForOwner(t: Tx, ownerId: string, activityId: string) 
 }
 
 /** Strips every teacher-only field (answer key, rationale, rubric, ideal answer). */
-export function toLearnerActivity(a: Pick<ActivityRow, "id" | "spec_json" | "purpose">, conceptTitle: string): LearnerActivity {
+export function toLearnerActivity(a: Pick<ActivityRow, "id" | "spec_json" | "purpose"> & { model_info_json?: Record<string, unknown> }, conceptTitle: string): LearnerActivity {
   const s = a.spec_json;
   const base = { id: a.id, purpose: a.purpose, conceptTitle };
   switch (s.kind) {
     case "explanation":
-      return { ...base, kind: "explanation", title: s.title, bodyMarkdown: s.bodyMarkdown, continueLabel: s.continueLabel };
+      return { ...base, kind: "explanation", title: s.title, bodyMarkdown: s.bodyMarkdown, continueLabel: s.continueLabel, ...activitySources(a.model_info_json) };
     case "multiple_choice":
       return { ...base, kind: "multiple_choice", promptMarkdown: s.promptMarkdown, choices: s.choices.map((c) => ({ id: c.id, text: c.text })), difficulty: s.difficulty };
     case "free_response":
@@ -359,6 +359,7 @@ type Hypothesis = { activity: ActivityRow; result: "correct" | "incorrect" };
  */
 async function planNext(q: Db, ownerId: string, s: SessionRow, hypothesis?: Hypothesis) {
   const course = await loadCourse(q, ownerId, s.course_id);
+  const goal = await loadActiveGoal(q, course);
   let concepts = await loadConceptStates(q, course.id);
   let stepsRows: StepRow[] = await q<StepRow[]>`
     select a.id as activity_id, a.concept_id, a.kind, a.purpose, e.result
@@ -381,6 +382,7 @@ async function planNext(q: Db, ownerId: string, s: SessionRow, hypothesis?: Hypo
     dueReviews,
     focusConceptId: s.checkpoint_json.focusConceptId ?? null,
     difficultyOffset: s.checkpoint_json.difficultyOffset ?? 0,
+    limits: lessonLimits(goal.time_budget_minutes_weekly, goal.depth),
   });
   return { course, concepts, stepsRows, decision };
 }
@@ -454,6 +456,7 @@ async function buildActivityContext(q: Db, ownerId: string, course: CourseRow, c
     followUp,
     courseConcepts,
     difficultyPreference: s.checkpoint_json.difficultyOffset ?? 0,
+    webGrounding: env().ADA_WEB_GROUNDING === "on" && d.kind === "explanation",
   };
 }
 
@@ -472,7 +475,18 @@ async function insertActivity(t: Tx, s: SessionRow, course: CourseRow, d: Planne
     insert into activities (session_id, course_id, concept_id, review_item_id, sequence_no, kind, purpose, spec_json, model_info_json)
     values (${s.id}, ${course.id}, ${d.conceptId}, ${d.reviewItemId ?? null}, ${seq}, ${spec.kind}, ${d.purpose}, ${json(spec)}, ${json(info)})
     returning id`;
+  // Verified provenance: only pages the provider reported searching or fetching.
+  for (const src of ((info.sources as FetchedSource[] | undefined) ?? []).slice(0, 6)) {
+    if (!/^https?:\/\//i.test(src.url)) continue;
+    await t`insert into source_references (course_id, activity_id, title, url, retrieved_at, source_type)
+      values (${course.id}, ${row.id}, ${(src.title ?? src.url).slice(0, 300)}, ${src.url.slice(0, 2000)}, ${src.retrievedAt ?? new Date().toISOString()}, 'web_search')`;
+  }
   return row.id;
+}
+
+function activitySources(info: Record<string, unknown> | undefined) {
+  const list = ((info?.sources as FetchedSource[] | undefined) ?? []).filter((x) => /^https?:\/\//i.test(x.url)).slice(0, 6);
+  return list.length ? { sources: list.map((x) => ({ url: x.url, title: x.title })) } : {};
 }
 
 // ---------------------------------------------------------------- prepared (prefetched) activities

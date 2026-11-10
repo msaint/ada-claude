@@ -41,6 +41,8 @@ export type CourseDraftView = {
   convertedCourseId?: string | null;
   /** Pages Ada actually read (fetched by the model provider) while setting up. */
   sourcesRead: { url: string; title: string | null }[];
+  /** Background the learner pasted (their own text), for editing. */
+  background: string | null;
   error?: InlineError | null;
   devModel: boolean;
 };
@@ -62,7 +64,17 @@ export type CourseHeader = {
 };
 
 export type LearnerActivity =
-  | { id: string; kind: "explanation"; purpose: string; conceptTitle: string; title?: string; bodyMarkdown: string; continueLabel?: string }
+  | {
+      id: string;
+      kind: "explanation";
+      purpose: string;
+      conceptTitle: string;
+      title?: string;
+      bodyMarkdown: string;
+      continueLabel?: string;
+      /** Pages the model consulted via web search while writing this (reported by the provider). */
+      sources?: { url: string; title: string | null }[];
+    }
   | { id: string; kind: "multiple_choice"; purpose: string; conceptTitle: string; promptMarkdown: string; choices: { id: string; text: string }[]; difficulty: number }
   | { id: string; kind: "free_response"; purpose: string; conceptTitle: string; promptMarkdown: string; difficulty: number }
   | { id: string; kind: "reflection"; purpose: string; conceptTitle: string; promptMarkdown: string };

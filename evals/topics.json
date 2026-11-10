@@ -1,0 +1,22 @@
+[
+  { "id": "train-wheels", "topic": "How train wheels stay on the track", "tags": ["curiosity", "physics"] },
+  { "id": "black-holes", "topic": "Black holes", "tags": ["curiosity", "physics"] },
+  { "id": "python-spreadsheets", "topic": "I want to learn Python to automate spreadsheets at work", "tags": ["goal", "programming"] },
+  { "id": "ball-bearings", "topic": "history of ball bearings in bicycles", "tags": ["curiosity", "niche"] },
+  { "id": "chess-openings", "topic": "Chess openings for a 1200-rated player who keeps losing by move 15", "tags": ["goal", "games"] },
+  { "id": "mrna-vaccines", "topic": "How mRNA vaccines work", "tags": ["curiosity", "medical"] },
+  { "id": "index-funds", "topic": "Understanding my 401(k) and index funds so I can pick investments", "tags": ["goal", "financial"] },
+  { "id": "sql-window", "topic": "SQL window functions for analytics interviews next month", "tags": ["goal", "programming"] },
+  { "id": "roman-republic", "topic": "Why the Roman Republic fell", "tags": ["curiosity", "history"] },
+  { "id": "bayes-ab", "topic": "Bayesian statistics for A/B testing", "tags": ["goal", "statistics"] },
+  { "id": "sheet-music", "topic": "Reading sheet music from scratch, I play guitar by ear", "tags": ["goal", "music"] },
+  { "id": "transformers", "topic": "How transformer neural networks work, I know basic linear algebra", "tags": ["curiosity", "technical"] },
+  { "id": "sourdough", "topic": "The science of sourdough baking", "tags": ["curiosity", "everyday"] },
+  { "id": "contract-law", "topic": "Basics of contract law for freelancers", "tags": ["goal", "legal"] },
+  { "id": "spanish-past", "topic": "Spanish past tenses: preterite vs imperfect", "tags": ["goal", "language"] },
+  { "id": "power-grid", "topic": "How the electrical grid balances supply and demand", "tags": ["curiosity", "engineering"] },
+  { "id": "k8s-networking", "topic": "Kubernetes networking for a backend engineer who has only used Docker Compose", "tags": ["goal", "technical"] },
+  { "id": "eu-ai-act", "topic": "What the EU AI Act requires of companies", "tags": ["goal", "legal", "time-sensitive"] },
+  { "id": "sn1-sn2", "topic": "Organic chemistry: SN1 vs SN2 reactions", "tags": ["goal", "chemistry"] },
+  { "id": "vague-space", "topic": "stuff about space", "tags": ["curiosity", "vague"] }
+]

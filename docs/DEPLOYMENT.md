@@ -55,6 +55,9 @@ Optional variables, with defaults:
 | `ADA_ANTHROPIC_EFFORT_FAST` / `_DEEP` | `low` for questions, hints, explanations / `medium` for planning and grading |
 | `ADA_MODEL_CLARIFY` / `_COMPILE` / `_TUTOR` / `_EVALUATE` | `gpt-4.1-mini` / `gpt-4.1` / `gpt-4.1-mini` / `gpt-4.1-mini` |
 | `ADA_MODEL_CALLS_PER_MINUTE` / `_PER_DAY` | `20` / `400` per user |
+| `CRON_SECRET` | unset. Set a random 16+ character value to enable the daily cleanup job (Vercel Cron sends it automatically) and the reminders endpoint. |
+| `RESEND_API_KEY` + `EMAIL_FROM` | unset. Set both to enable password reset and review reminder emails (see "Email" below). |
+| `ADA_WEB_GROUNDING` | `off`. Set `on` to let Claude web-search while writing explanations and show sources (adds cost and latency). |
 | `DB_POOL_MAX` | `3` per function instance |
 
 **Don't set `MOCK_MODEL`.** In production the app refuses to start without at least one provider key, so the dev model can never serve real users by accident.
@@ -77,3 +80,22 @@ Optional variables, with defaults:
 - **Connections:** the app holds a database transaction open while it waits for the model during setup and lesson steps (see DECISIONS D4). That's fine at small scale. Under real traffic, watch Supabase's pooler client limits for your plan.
 - **Costs:** every activity, hint, explanation and free-response grade is a model call. The per-user minute and day caps are the guardrail. To cut cost, point the high-volume operations at a cheaper model, e.g. `ADA_ANTHROPIC_MODEL_TUTOR=claude-sonnet-5-5` or `claude-haiku-5-5` for hints and activities, and keep `COMPILE` on the strongest model.
 - **Custom domain:** add it in Vercel → Domains, then update `APP_BASE_URL`.
+
+## Email (password reset and review reminders)
+
+Ada sends email through [Resend](https://resend.com). Until this is set up, the app works as before and simply never sends email.
+
+1. **Resend:** create an account, add and verify a sending domain (Resend shows the DNS records to add), and create an API key with "Sending access".
+2. **Vercel → Settings → Environment Variables** (Production, and Preview if you want to test there):
+   - `RESEND_API_KEY`: the key, marked Sensitive.
+   - `EMAIL_FROM`: e.g. `Ada <ada@yourdomain.com>`, on the verified domain.
+   - `CRON_SECRET`: a random string of 16+ characters (if not already set).
+   - `APP_BASE_URL` must be the public URL, because links in emails are built from it.
+   Then redeploy.
+3. **GitHub → Settings → Secrets and variables → Actions** (for the hourly reminders):
+   - Secret `CRON_SECRET`: the same value as in Vercel Production.
+   - Variable `APP_URL`: the production URL, e.g. `https://ada-learning-platform.vercel.app`.
+
+The `Review reminders` workflow then calls `/api/cron/reminders` once an hour. Run it by hand from the Actions tab to test; its log shows how many emails were sent. Password reset works as soon as step 2 is done.
+
+Without a verified domain, Resend only delivers to the address that owns the Resend account, which is enough for a first test.

@@ -31,6 +31,7 @@ export const ProposeDraftBody = z.object({
   adjustment: learnerText(500).optional(),
   expectedVersion: z.number().int().positive(),
 });
+export const BackgroundDraftBody = z.object({ text: z.string().max(8000, "Keep it under 8,000 characters"), expectedVersion: z.number().int().positive() });
 export const BackDraftBody = z.object({ expectedVersion: z.number().int().positive() });
 export const ConvertDraftBody = z.object({ idempotencyKey: idemKey.optional() });
 
@@ -82,5 +83,12 @@ export const PreferencesBody = z.object({
   emailOptIn: z.boolean().optional(),
   quietHours: z.object({ start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/) }).optional(),
 });
+
+export const PasswordResetRequestBody = z.object({ email: z.string().trim().max(254) });
+export const PasswordResetConfirmBody = z.object({
+  token: z.string().min(20).max(200),
+  password: z.string().min(8, "Password must be at least 8 characters").max(200),
+});
+export const EmailTokenBody = z.object({ token: z.string().min(20).max(200) });
 
 export const DeleteAccountBody = z.object({ confirmEmail: z.string().trim().max(254) });

@@ -19,12 +19,14 @@ export function LessonPlayer({
   nextAction,
   intent,
   autoStart,
+  clearStartParam = false,
 }: {
   courseId: string;
   initialSession: View | null;
   nextAction: NextAction;
   intent: "curiosity" | "goal";
   autoStart: { kind?: SessionView["kind"]; focusConceptId?: string } | null;
+  clearStartParam?: boolean;
 }) {
   const router = useRouter();
   const [session, setSession] = useState<View | null>(initialSession);
@@ -41,6 +43,7 @@ export function LessonPlayer({
   const continueRef = useRef<HTMLButtonElement>(null);
   const activityId = session?.activity?.id ?? null;
   const started = useRef(false);
+  const cleared = useRef(false);
 
   const adopt = useCallback((s: View, opts: { resetInput?: boolean } = {}) => {
     setSession(s);
@@ -96,7 +99,12 @@ export function LessonPlayer({
       started.current = true;
       start(autoStart);
     }
-  }, [autoStart, start]);
+    // Drop the one-shot ?start=1 so a later reload doesn't begin another session.
+    if (clearStartParam && !cleared.current) {
+      cleared.current = true;
+      window.history.replaceState(null, "", `/app/courses/${courseId}`);
+    }
+  }, [autoStart, start, clearStartParam, courseId]);
 
   function saveDraft(value: { choiceId?: string; text?: string }) {
     if (!activityId) return;
